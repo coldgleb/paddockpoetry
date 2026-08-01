@@ -2,7 +2,7 @@
 // в SVG вручную, без библиотек.
 import { formatLapTime } from './pace.js';
 
-const M = { top: 16, right: 54, bottom: 30, left: 66 };
+const M = { top: 16, right: 18, bottom: 30, left: 66 };
 const HEIGHT = 330;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
@@ -50,9 +50,8 @@ export function renderChart(host, series, { from, to }) {
     grid += `<text class="tick tx" x="${x(lap).toFixed(1)}" y="${M.top + ih + 20}">${lap}</text>`;
   }
 
-  // --- линии: разрыв там, где круг выпал из расчёта ---
+  // --- линии: сплошные по всем кругам пилота, без разрывов ---
   let paths = '';
-  const labels = [];
   for (const s of drawn) {
     let d = '';
     let prevLap = null;
@@ -61,22 +60,27 @@ export function renderChart(host, series, { from, to }) {
       prevLap = lap;
     }
     paths += `<path class="line" d="${d}" stroke="${s.color}" />`;
-    const [lLap, lVal] = s.points[s.points.length - 1];
-    labels.push({ x: x(lLap) + 8, y: y(lVal), code: s.code, color: s.color });
+  }
+  // Круги, не попавшие в темп (пит, SC, выбросы, выключенные вручную),
+  // помечаем полой точкой: линия целая, но видно, что в счёт они не пошли.
+  for (const s of drawn) {
+    for (const [lap, v] of s.points) {
+      if (!s.excluded?.has(lap)) continue;
+      paths += `<circle class="skip" cx="${x(lap).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.6" stroke="${s.color}" />`;
+    }
   }
 
-  // Подписи у концов линий: принадлежность читается и без цвета. Ближние
-  // концы расталкиваем по вертикали, иначе коды наезжают друг на друга.
-  labels.sort((a, b) => a.y - b.y);
-  for (let i = 1; i < labels.length; i++) {
-    labels[i].y = Math.max(labels[i].y, labels[i - 1].y + 13);
-  }
-  const shift = Math.max(0, labels.at(-1).y - (M.top + ih));
-  for (const l of labels) {
-    paths += `<text class="lbl" x="${l.x.toFixed(1)}" y="${(l.y - shift).toFixed(1)}" fill="${l.color}">${esc(l.code)}</text>`;
-  }
+  // Коды пилотов — легендой над графиком, а не подписями у концов линий:
+  // в поле графика они наезжали на линии и читались как разрыв.
+  const legend =
+    '<div class="chart-legend">' +
+    drawn
+      .map((s) => `<span><i style="background:${s.color}"></i>${esc(s.code)}</span>`)
+      .join('') +
+    '</div>';
 
   host.innerHTML =
+    legend +
     `<svg viewBox="0 0 ${width} ${HEIGHT}" width="${width}" height="${HEIGHT}" role="img" aria-label="Темп по кругам">` +
     `<text class="axis" x="${M.left + iw / 2}" y="${HEIGHT - 2}">круг</text>` +
     grid +

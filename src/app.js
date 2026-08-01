@@ -43,13 +43,6 @@ function setStatus(msg, isError = false) {
 
 const fmt = (v) => (v == null ? '—' : v.toFixed(3));
 
-// Время круга: минуты мельче и приглушены — они всё равно всегда одинаковые,
-// смысл несут секунды и доли.
-function lapHTML(sec) {
-  const [m, rest] = formatLapTime(sec).split(':');
-  return `<span class="t"><span class="t-m">${m}:</span>${rest}</span>`;
-}
-
 // --- расчёт и рендер -------------------------------------------------------
 
 function render() {
@@ -89,7 +82,7 @@ function renderTable() {
   html += `<tr class="r-pace"><th class="corner">Темп</th>${selected
     .map((id) => {
       const p = rows.get(id).pace;
-      return `<td>${p == null ? '—' : lapHTML(p)}</td>`;
+      return `<td>${formatLapTime(p)}</td>`;
     })
     .join('')}</tr>`;
 
@@ -118,7 +111,7 @@ function renderTable() {
       // Пит-круги показываем меткой, как на таймингах; при ручном включении —
       // настоящим временем, иначе непонятно, что именно пошло в темп.
       const marked = !on && (flag === 'PIT' || flag === 'OUT' || flag === 'SC');
-      const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : lapHTML(t);
+      const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : formatLapTime(t);
       const hint = `${formatLapTime(t)}${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
       html += `<td class="${cls}" data-driver="${id}" data-lap="${lap}" title="${hint}">${label}</td>`;
     }
@@ -141,22 +134,35 @@ function stickHeader() {
   }
 }
 
-// График строится из тех же точек, что легли в темп, — расходиться не может.
+// На графике — все круги пилота в выбранном окне, линия сплошная. Те, что
+// не пошли в темп, помечаются полой точкой, а не разрывом линии.
 function renderChartPanel() {
   const { race, flags, selected, overrides, paceThreshold, range } = state;
   if (!race) return;
   const rows = computePace(race, flags, { selected, overrides, paceThreshold, range });
   const byId = new Map(race.drivers.map((d) => [d.driverId, d]));
+  const win = range || { from: 1, to: race.lapCount };
 
   renderChart(
     els.chart,
-    selected.map((id) => ({
-      id,
-      code: byId.get(id)?.code || id,
-      color: teamColor(byId.get(id)?.constructorId),
-      points: rows.get(id).points,
-    })),
-    range || { from: 1, to: race.lapCount },
+    selected.map((id) => {
+      const counted = new Set(rows.get(id).points.map(([lap]) => lap));
+      const points = [];
+      const excluded = new Set();
+      for (const [lap, v] of race.times.get(id) || []) {
+        if (lap < win.from || lap > win.to) continue;
+        points.push([lap, v]);
+        if (!counted.has(lap)) excluded.add(lap);
+      }
+      return {
+        id,
+        code: byId.get(id)?.code || id,
+        color: teamColor(byId.get(id)?.constructorId),
+        points,
+        excluded,
+      };
+    }),
+    win,
   );
 }
 

@@ -156,6 +156,14 @@ input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); bor
 .legend i { font-style: normal; font-variant-numeric: tabular-nums; }
 .legend .sw-off { color: var(--muted); text-decoration: line-through; }
 .legend .sw-outlier { color: var(--muted); opacity: .65; }
+.legend .sw-dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border: 1.5px solid var(--text-2);
+  border-radius: 50%;
+  background: var(--panel);
+  vertical-align: -1px;
+}
 
 /* ---------- диапазон кругов ---------- */
 
@@ -209,8 +217,21 @@ button.ghost:hover { color: var(--text); border-color: var(--muted); }
 .chart .ty { text-anchor: end; dominant-baseline: middle; }
 .chart .tx { text-anchor: middle; }
 .chart .axis { fill: var(--muted); font-size: 11px; text-anchor: middle; }
-.chart .lbl { font-size: 12px; font-weight: 700; dominant-baseline: middle; }
+.chart .skip { fill: var(--panel); stroke-width: 1.5; }
 .chart .hit { fill: transparent; }
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  color: var(--text-2);
+}
+.chart-legend span { display: flex; align-items: center; gap: 6px; }
+.chart-legend i { width: 11px; height: 3px; border-radius: 2px; }
 .chart .cursor line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 
 .chart .tip {
@@ -309,12 +330,6 @@ tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
 
 .cell { cursor: pointer; padding-block: 5px; font-size: 15px; }
 
-/* Минуты в «1:23.456» несут ноль информации — приглушаем и чуть мельчим,
-   чтобы взгляд цеплялся за секунды и доли. Сильнее уменьшать нельзя:
-   минута начинает читаться как подстрочный индекс. */
-.t-m { font-size: .84em; color: var(--muted); font-weight: 400; }
-.cell.off .t-m, .cell.outlier .t-m { color: inherit; }
-tr.r-pace .t-m { font-weight: 500; }
 .cell:hover { background: #222836 !important; color: #fff; }
 .cell.on { color: var(--text); }
 .cell.off { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
