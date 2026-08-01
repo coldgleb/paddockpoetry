@@ -8,6 +8,34 @@ export function parseLapTime(s) {
   return (parseInt(m[1], 10) || 0) * 60 + parseFloat(m[2]);
 }
 
+// Что именно сравниваем. Сумма трёх секторов совпадает с временем круга бит
+// в бит (проверено на 1408 кругах), но режим 'lap' всё равно берёт готовое
+// время: оно есть и там, где отдельный сектор потерялся.
+export const METRICS = {
+  lap: { label: 'весь круг', parts: null },
+  s1: { label: 'сектор 1', parts: ['s1'] },
+  s2: { label: 'сектор 2', parts: ['s2'] },
+  s3: { label: 'сектор 3', parts: ['s3'] },
+  s12: { label: 'S1 + S2', parts: ['s1', 's2'] },
+  s23: { label: 'S2 + S3', parts: ['s2', 's3'] },
+  s13: { label: 'S1 + S3', parts: ['s1', 's3'] },
+};
+
+// Значение круга по выбранной метрике. Круг без нужного сектора возвращает
+// null и в расчёт не идёт — занулять его было бы враньём.
+export function lapValue(entry, metric = 'lap') {
+  if (!entry) return null;
+  const parts = METRICS[metric]?.parts;
+  if (!parts) return entry.t ?? null;
+  let sum = 0;
+  for (const p of parts) {
+    const v = entry[p];
+    if (v == null) return null;
+    sum += v;
+  }
+  return sum;
+}
+
 export function median(values) {
   if (!values.length) return null;
   const a = [...values].sort((x, y) => x - y);
@@ -16,49 +44,32 @@ export function median(values) {
 }
 
 // Помечает круги, которые не идут в темп по умолчанию.
-// Флаг: null | 'LAP1' | 'PIT' | 'OUT' | 'SC'
-// manualSC — Map<круг, boolean>: ручная пометка машины безопасности.
-// true ставит SC там, где автоопределение промолчало, false снимает там,
-// где оно ошиблось. Порядок проверок ниже даёт нужный приоритет: PIT и OUT
-// сильнее SC, то есть ручной SC перекрывает время круга, но не пит-метки.
-export function flagLaps(race, { scThreshold = 1.15, manualSC = null } = {}) {
-  // Медиана каждого круга по всем пилотам — общая для всех медленная,
-  // значит на трассе SC/VSC, а не проблемы конкретного пилота.
-  // ponytail: SC определяется эвристикой по медиане круга; Jolpica не отдаёт
-  // статус трассы. Нужна точность — OpenF1 /race_control (только с 2023).
-  const lapMedians = new Map();
-  for (let lap = 1; lap <= race.lapCount; lap++) {
-    const times = [];
-    for (const t of race.times.values()) {
-      const v = t.get(lap);
-      if (v != null) times.push(v);
-    }
-    if (times.length) lapMedians.set(lap, median(times));
-  }
-  const baseline = median([...lapMedians.values()]);
-  const scLaps = new Set();
-  if (baseline != null) {
-    for (const [lap, m] of lapMedians) {
-      if (m > baseline * scThreshold) scLaps.add(lap);
-    }
-  }
+// Флаг: null | 'LAP1' | 'PIT' | 'OUT' | 'SC' | 'VSC'
+//
+// SC/VSC приходят готовыми из судейской (race.sc) — раньше это была эвристика
+// по медиане круга, теперь настоящие данные.
+// manualSC — Map<круг, 'SC' | false>: ручная пометка. Порядок проверок ниже
+// даёт нужный приоритет: PIT и OUT сильнее SC, то есть ручная пометка
+// перекрывает время круга, но не пит-метки.
+export function flagLaps(race, { manualSC = null } = {}) {
+  const track = new Map(race.sc || []);
   if (manualSC) {
     for (const [lap, on] of manualSC) {
-      if (on) scLaps.add(lap);
-      else scLaps.delete(lap);
+      if (on) track.set(lap, typeof on === 'string' ? on : 'SC');
+      else track.delete(lap);
     }
   }
 
   const flags = new Map();
-  for (const [driverId, times] of race.times) {
+  for (const [driverId, byLapEntry] of race.laps) {
     const pits = race.pits.get(driverId) || new Set();
     const byLap = new Map();
-    for (const lap of times.keys()) {
+    for (const lap of byLapEntry.keys()) {
       let flag = null;
       if (lap === 1) flag = 'LAP1';
       else if (pits.has(lap)) flag = 'PIT';
       else if (pits.has(lap - 1)) flag = 'OUT';
-      else if (scLaps.has(lap)) flag = 'SC';
+      else if (track.has(lap)) flag = track.get(lap);
       if (flag) byLap.set(lap, flag);
     }
     flags.set(driverId, byLap);
@@ -86,25 +97,33 @@ export function isIncluded(driverId, lap, flags, overrides, range) {
 }
 
 // Секунды → «1:23.456». Округляем до миллисекунд до деления, иначе 119.9995
-// превратилось бы в «1:60.000».
+// превратилось бы в «1:60.000». Меньше минуты печатаем без минут: сектор
+// в виде «0:29.832» читается плохо.
 export function formatLapTime(sec) {
   if (sec == null || !Number.isFinite(sec)) return '—';
   const ms = Math.round(sec * 1000);
+  if (ms < 60000) return (ms / 1000).toFixed(3);
   const m = Math.floor(ms / 60000);
   return `${m}:${((ms - m * 60000) / 1000).toFixed(3).padStart(6, '0')}`;
 }
 
 // Темп = среднее выбранных кругов, но круги медленнее личной медианы
 // более чем в paceThreshold раз выбрасываются (SC-заезды, ошибки, трафик).
-export function computePace(race, flags, { selected, overrides, paceThreshold = 1.02, range = null }) {
+export function computePace(
+  race,
+  flags,
+  { selected, overrides, paceThreshold = 1.02, range = null, metric = 'lap' },
+) {
   const rows = new Map();
 
   for (const driverId of selected) {
-    const times = race.times.get(driverId);
+    const byLap = race.laps.get(driverId);
     const used = [];
-    if (times) {
-      for (const [lap, v] of times) {
-        if (isIncluded(driverId, lap, flags, overrides, range)) used.push([lap, v]);
+    if (byLap) {
+      for (const [lap, entry] of byLap) {
+        if (!isIncluded(driverId, lap, flags, overrides, range)) continue;
+        const v = lapValue(entry, metric);
+        if (v != null) used.push([lap, v]); // круг без нужного сектора пропускаем
       }
     }
     const med = median(used.map(([, v]) => v));

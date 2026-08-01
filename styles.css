@@ -288,6 +288,9 @@ tr.r-diff th, tr.r-diff td { border-bottom: 1px solid var(--line); }
 /* Столбец кругов липнет к левому краю. */
 th.corner, th.lapno { position: sticky; left: 0; background: var(--panel-2); text-align: left; }
 th.corner { z-index: 3; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+/* Текущая метрика рядом с «Темп» — иначе неясно, круг это или сектор. */
+th.corner em { font-style: normal; text-transform: none; letter-spacing: 0; opacity: .75; }
+th.corner em::before { content: " · "; }
 th.lapno { z-index: 1; padding: 0; }
 
 /* Код пилота: цвет команды + полоска под ним, чтобы принадлежность
@@ -390,7 +393,51 @@ tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
   font-weight: 800;
   text-align: center;
 }
-.tyre-note { margin: -4px 0 14px; }
+/* ---------- панель ручной резины ---------- */
+
+.tyre-panel {
+  padding: 14px 18px;
+  margin-bottom: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.tyre-panel h2 {
+  margin: 0 0 10px;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: .07em; text-transform: uppercase;
+  color: var(--muted);
+}
+.tyre-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tyre-form label {
+  text-transform: none; letter-spacing: 0;
+  font-size: 13px; font-weight: 500; color: var(--text-2);
+}
+.tyre-form select { min-width: 130px; padding: 7px 9px; }
+.tyre-form input {
+  width: 68px; padding: 7px 8px;
+  font: inherit; font-size: 14px;
+  font-variant-numeric: tabular-nums; text-align: center;
+  color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 7px;
+}
+.tyre-panel .hint { margin: 9px 0 0; font-size: 12px; }
+
+.tyre-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tyre-list:empty { margin-top: 0; }
+.tyre-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 5px 4px 10px;
+  border-left: 3px solid var(--comp);
+  border-radius: 0 6px 6px 0;
+  background: var(--panel-2);
+  font-size: 12.5px; color: var(--text-2);
+}
+.tyre-chip button {
+  padding: 0 4px; border: none; background: none;
+  color: var(--muted); font-size: 15px; line-height: 1;
+}
+.tyre-chip button:hover { color: var(--accent); }
 
 .flag {
   font-size: 10.5px;
@@ -402,6 +449,7 @@ tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
   color: #8b95aa;
 }
 .f-SC { background: #3a3115; color: #d8b451; }
+.f-VSC { background: #2c2b3f; color: #a9a2e0; }
 
 /* ---------- подвал ---------- */
 

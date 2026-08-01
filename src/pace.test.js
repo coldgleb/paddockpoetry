@@ -1,13 +1,14 @@
 // Self-check: node src/pace.test.js
 import assert from 'node:assert/strict';
 import {
-  parseLapTime, median, flagLaps, computePace, isIncluded, formatLapTime, key,
+  parseLapTime, median, flagLaps, computePace, isIncluded, formatLapTime, lapValue, METRICS, key,
 } from './pace.js';
 import { teamColor, onColor } from './teams.js';
 import { expandStints, COMPOUNDS } from './tyres.js';
+import { parseSafetyCar } from './openf1.js';
 
 // Референс-таблица пользователя, круги 1..21. Времена круга 1 и пит-кругов
-// проставлены правдоподобно: Jolpica всегда отдаёт время, даже на заезде в боксы.
+// проставлены правдоподобно: OpenF1 отдаёт время и на заезде в боксы.
 const REF = {
   NOR: [93.412, 82.251, 82.422, 82.773, 83.287, 83.226, 83.357, 83.392, 83.501, 83.319,
         83.401, 83.618, 102.400, 87.200, 82.070, 82.193, 81.944, 81.981, 82.354, 82.243, 82.375],
@@ -20,17 +21,24 @@ const REF = {
 };
 const PITS = { NOR: [13], PIA: [14], LEC: [16], HAM: [11] };
 
-function makeRace(laps, pitLaps) {
-  const times = new Map();
+// Секторы делим 35/35/30 — точные доли неважны, важно что сумма трёх даёт
+// ровно время круга, как в настоящих данных OpenF1.
+function makeRace(laps, pitLaps, sc = new Map()) {
+  const byDriver = new Map();
   let lapCount = 0;
   for (const [id, arr] of Object.entries(laps)) {
     const byLap = new Map();
-    arr.forEach((t, i) => t != null && byLap.set(i + 1, t));
-    times.set(id, byLap);
+    arr.forEach((t, i) => {
+      if (t == null) return;
+      const s1 = +(t * 0.35).toFixed(3);
+      const s2 = +(t * 0.35).toFixed(3);
+      byLap.set(i + 1, { t, s1, s2, s3: +(t - s1 - s2).toFixed(3) });
+    });
+    byDriver.set(id, byLap);
     lapCount = Math.max(lapCount, arr.length);
   }
   const pits = new Map(Object.entries(pitLaps).map(([id, ls]) => [id, new Set(ls)]));
-  return { lapCount, times, pits };
+  return { lapCount, laps: byDriver, pits, sc };
 }
 
 const race = makeRace(REF, PITS);
@@ -60,24 +68,57 @@ assert.equal(flags.get('HAM').get(11), 'PIT');
 assert.equal(flags.get('HAM').get(12), 'OUT');
 assert.equal(flags.get('LEC').get(16), 'PIT');
 assert.equal(flags.get('LEC').get(17), 'OUT');
-// Медленный круг одного пилота — не SC: медиана круга по всем осталась нормальной.
 assert.equal(flags.get('PIA').get(15), 'OUT');
 assert.equal(flags.get('NOR').get(12), undefined);
 
-// --- SC определяется по медиане круга у всех сразу -------------------------
+// --- разбор судейской в отрезки SC/VSC -------------------------------------
+// Реальные сообщения Британии-2025: два VSC и два выезда машины безопасности,
+// плюс четыре сообщения о штрафе за нарушение под SC — эти идут категорией
+// Other и в отрезки попасть не должны.
+const britain = parseSafetyCar([
+  { category: 'Other', lap_number: 1, message: 'FORMATION LAP WILL BE STARTED BEHIND THE SAFETY CAR' },
+  { category: 'SafetyCar', lap_number: 2, message: 'VIRTUAL SAFETY CAR DEPLOYED' },
+  { category: 'SafetyCar', lap_number: 4, message: 'VIRTUAL SAFETY CAR ENDING' },
+  { category: 'SafetyCar', lap_number: 5, message: 'VIRTUAL SAFETY CAR DEPLOYED' },
+  { category: 'SafetyCar', lap_number: 7, message: 'VIRTUAL SAFETY CAR ENDING' },
+  { category: 'SafetyCar', lap_number: 14, message: 'SAFETY CAR DEPLOYED' },
+  { category: 'SafetyCar', lap_number: 17, message: 'SAFETY CAR IN THIS LAP' },
+  { category: 'SafetyCar', lap_number: 18, message: 'SAFETY CAR DEPLOYED' },
+  { category: 'SafetyCar', lap_number: 21, message: 'SAFETY CAR IN THIS LAP' },
+  { category: 'Other', lap_number: 22, message: 'INCIDENT INVOLVING CAR 81 (PIA) NOTED - SAFETY CAR INFRINGEMENT' },
+  { category: 'Other', lap_number: 25, message: 'FIA STEWARDS: 10 SECOND TIME PENALTY FOR CAR 81 (PIA) - SAFETY CAR INFRINGEMENT' },
+]);
+assert.deepEqual([...britain.keys()].sort((a, b) => a - b), [2, 3, 4, 5, 6, 7, 14, 15, 16, 17, 18, 19, 20, 21]);
+assert.equal(britain.get(3), 'VSC');
+assert.equal(britain.get(16), 'SC');
+assert.equal(britain.get(1), undefined, 'формационный круг — не отрезок SC');
+assert.equal(britain.get(22), undefined, 'штрафы за нарушение под SC не считаются');
+assert.equal(britain.get(13), undefined);
+// Гонка без машины безопасности.
+assert.equal(parseSafetyCar([]).size, 0);
+// Объявление без закрывающего сообщения не тянется до конца гонки.
+const dangling = parseSafetyCar([{ category: 'SafetyCar', lap_number: 30, message: 'SAFETY CAR DEPLOYED' }]);
+assert.deepEqual([...dangling.keys()], [30]);
+
+// --- SC берётся из данных, а не угадывается --------------------------------
 const scRace = makeRace(
-  {
-    A: [95, 90, 90, 90, 140, 141, 90, 90, 90, 90],
-    B: [95, 91, 90, 91, 142, 140, 91, 90, 91, 90],
-    C: [96, 90, 91, 90, 141, 142, 90, 91, 90, 91],
-  },
-  { A: [], B: [], C: [] },
+  { A: [95, 90, 90, 90, 140, 141, 90], B: [95, 91, 90, 91, 142, 140, 91] },
+  { A: [], B: [] },
+  new Map([[5, 'SC'], [6, 'SC'], [3, 'VSC']]),
 );
 const scFlags = flagLaps(scRace);
 assert.equal(scFlags.get('A').get(5), 'SC');
 assert.equal(scFlags.get('B').get(6), 'SC');
-assert.equal(scFlags.get('C').get(7), undefined, 'обычный круг не помечается SC');
+assert.equal(scFlags.get('A').get(3), 'VSC', 'виртуальная отличается от обычной');
+assert.equal(scFlags.get('A').get(7), undefined, 'обычный круг не помечается');
 assert.equal(scFlags.get('A').get(1), 'LAP1', 'старт важнее SC');
+// Ручная пометка добавляет и снимает поверх данных.
+assert.equal(flagLaps(scRace, { manualSC: new Map([[7, 'SC']]) }).get('A').get(7), 'SC');
+assert.equal(flagLaps(scRace, { manualSC: new Map([[5, false]]) }).get('A').get(5), undefined);
+// Пит сильнее SC: круг 5 у A становится заездом в боксы.
+const pitRace = makeRace({ A: [95, 90, 90, 90, 140, 141, 90] }, { A: [5] }, new Map([[5, 'SC'], [6, 'SC']]));
+assert.equal(flagLaps(pitRace).get('A').get(5), 'PIT', 'PIT сильнее SC');
+assert.equal(flagLaps(pitRace).get('A').get(6), 'OUT', 'OUT сильнее SC');
 
 // --- темп по умолчанию: круг 1, PIT и OUT не участвуют ---------------------
 const base = run();
@@ -152,20 +193,57 @@ assert.equal(flagLaps(scRace, { manualSC: new Map([[5, false]]) }).get('A').get(
 // Пустая карта ничего не меняет.
 assert.deepEqual(flagLaps(race, { manualSC: new Map() }).get('NOR'), flags.get('NOR'));
 
+// --- метрика сравнения: сектор, сумма секторов, круг ------------------------
+const e = { t: 90, s1: 31.5, s2: 31.5, s3: 27 };
+assert.equal(lapValue(e, 'lap'), 90);
+assert.equal(lapValue(e, 's1'), 31.5);
+assert.equal(lapValue(e, 's2'), 31.5);
+assert.equal(lapValue(e, 's3'), 27);
+assert.equal(lapValue(e, 's12'), 63);
+assert.equal(lapValue(e, 's23'), 58.5);
+assert.equal(lapValue(e, 's13'), 58.5);
+assert.equal(lapValue(e, 'lap'), lapValue(e, 's1') + lapValue(e, 's2') + lapValue(e, 's3'),
+  'сумма трёх секторов совпадает с кругом');
+// Потерянный сектор: круг целиком ещё считается, а суммы с ним — нет.
+const gap = { t: 90, s1: 31.5, s2: null, s3: 27 };
+assert.equal(lapValue(gap, 'lap'), 90, 'время круга есть даже без сектора');
+assert.equal(lapValue(gap, 's1'), 31.5);
+assert.equal(lapValue(gap, 's2'), null);
+assert.equal(lapValue(gap, 's12'), null, 'сумма с потерянным сектором не считается');
+assert.equal(lapValue(gap, 's13'), 58.5, 'а без него — считается');
+assert.equal(lapValue(null, 'lap'), null);
+assert.equal(lapValue(e, 'нет-такой-метрики'), 90, 'неизвестная метрика падает на круг');
+// Темп по сектору отличается от темпа по кругу и примерно втрое меньше.
+const byS1 = run({ metric: 's1' });
+assert.ok(byS1.get('NOR').pace < base.get('NOR').pace / 2);
+assert.ok(Math.abs(byS1.get('NOR').pace - base.get('NOR').pace * 0.35) < 0.01);
+assert.equal(byS1.get('NOR').usedLaps, base.get('NOR').usedLaps, 'состав кругов тот же');
+// Круг без сектора выпадает из расчёта, а не обнуляется.
+const holed = makeRace({ A: [90, 90, 90, 90] }, { A: [] });
+holed.laps.get('A').get(3).s2 = null;
+const holedRows = computePace(holed, flagLaps(holed), {
+  selected: ['A'], overrides: new Map(), metric: 's12',
+});
+assert.equal(holedRows.get('A').usedLaps, 2, 'круг 1 — старт, круг 3 — без сектора');
+
 // --- формат времени круга --------------------------------------------------
 assert.equal(formatLapTime(83.456), '1:23.456');
 assert.equal(formatLapTime(102.741), '1:42.741');
 assert.equal(formatLapTime(60), '1:00.000');
-assert.equal(formatLapTime(59.9), '0:59.900');
-assert.equal(formatLapTime(9.5), '0:09.500');
+// Меньше минуты — без минут: сектор в виде «0:29.832» читается плохо.
+assert.equal(formatLapTime(29.832), '29.832');
+assert.equal(formatLapTime(59.9), '59.900');
+assert.equal(formatLapTime(9.5), '9.500');
 // Округление до миллисекунд идёт ДО деления на минуты, иначе тут вышло бы «1:60.000».
 assert.equal(formatLapTime(119.9995), '2:00.000');
 assert.equal(formatLapTime(null), '—');
 assert.equal(formatLapTime(NaN), '—');
-// Разбор и печать должны быть обратны друг другу.
-for (const s of ['1:23.456', '1:42.741', '0:59.900']) {
+// Разбор и печать обратны друг другу — с поправкой на то, что короче минуты
+// печатается без ведущего «0:».
+for (const s of ['1:23.456', '1:42.741', '59.900']) {
   assert.equal(formatLapTime(parseLapTime(s)), s);
 }
+assert.equal(parseLapTime('0:59.900'), 59.9, 'разбор всё ещё понимает ведущие минуты');
 
 // --- диапазон кругов «с X по Y» --------------------------------------------
 const inRange = (r) => run({ range: r });
@@ -247,22 +325,29 @@ const letters = Object.values(COMPOUNDS).map((c) => c.letter);
 assert.equal(new Set(letters).size, letters.length, 'буквы не должны совпадать');
 
 // --- цвета команд ----------------------------------------------------------
-// Список constructorId собран из /{сезон}/constructors за 2018–2026. Если в
-// новом сезоне появится команда, которой тут нет, цвет молча станет серым —
-// а серым помечены выключенные круги. Пусть лучше падает тест.
+// Названия команд собраны из /drivers за 2023–2026. Если в новом сезоне
+// появится команда, которой тут нет, цвет молча станет серым — а серым
+// помечены выключенные круги. Пусть лучше падает тест.
 const CONSTRUCTORS = [
-  'alpine', 'aston_martin', 'audi', 'cadillac', 'ferrari', 'haas', 'mclaren',
-  'mercedes', 'rb', 'red_bull', 'williams', 'sauber', 'alfa', 'alphatauri',
-  'racing_point', 'renault', 'force_india', 'toro_rosso',
+  'McLaren', 'Ferrari', 'Red Bull Racing', 'Mercedes', 'Aston Martin', 'Alpine',
+  'Williams', 'Racing Bulls', 'Audi', 'Cadillac', 'Haas F1 Team',
+  'Kick Sauber', 'Alfa Romeo', 'RB', 'AlphaTauri',
 ];
 const fallback = teamColor('какой-то-новый-состав-2030');
 for (const id of CONSTRUCTORS) {
   assert.match(teamColor(id), /^#[0-9A-F]{6}$/i, `${id}: цвет должен быть hex`);
   assert.notEqual(teamColor(id), fallback, `${id} остался без своего цвета`);
 }
-// Цвета должны быть различимы: одинаковый цвет у двух команд сольёт колонки.
-const used = CONSTRUCTORS.map(teamColor);
-assert.equal(new Set(used).size, used.length, 'два состава получили один цвет');
+// Цвета должны быть различимы внутри одного сезона: одинаковый цвет у двух
+// команд сольёт колонки. Между сезонами совпадения допустимы — переименование
+// той же команды (RB → Racing Bulls) обязано сохранять цвет.
+const GRID_2026 = [
+  'McLaren', 'Ferrari', 'Red Bull Racing', 'Mercedes', 'Aston Martin', 'Alpine',
+  'Williams', 'Racing Bulls', 'Audi', 'Cadillac', 'Haas F1 Team',
+];
+const used2026 = GRID_2026.map(teamColor);
+assert.equal(new Set(used2026).size, used2026.length, 'в сезоне 2026 два состава получили один цвет');
+assert.equal(teamColor('RB'), teamColor('Racing Bulls'), 'переименование не должно менять цвет');
 // Текст поверх плашки выбирается по яркости, иначе чип нечитаем.
 assert.equal(onColor('#E9EEF4'), '#10131a', 'на светлой плашке — тёмный текст');
 assert.equal(onColor('#3671C6'), '#ffffff', 'на тёмной плашке — светлый текст');

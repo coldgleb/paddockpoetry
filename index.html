@@ -27,6 +27,10 @@
         <label>&nbsp;</label>
         <button id="load" class="primary">Загрузить</button>
       </div>
+      <div class="field">
+        <label for="metric">Сравнивать</label>
+        <select id="metric"></select>
+      </div>
       <div class="field push">
         <label for="threshold">Порог выброса · <span id="threshold-value">102%</span></label>
         <input id="threshold" type="range" min="100" max="115" step="0.5" value="102" />
@@ -52,6 +56,7 @@
       <span><span class="flag">PIT</span> заезд в боксы</span>
       <span><span class="flag">OUT</span> круг после пит-стопа</span>
       <span><span class="flag f-SC">SC</span> машина безопасности</span>
+      <span><span class="flag f-VSC">VSC</span> виртуальная</span>
       <span><span class="sw-dash"></span> на графике — пропуск: круги, не прошедшие порог</span>
       <span class="tyres">Резина:
         <i class="tyre" style="--comp:#DA291C">S</i> софт
@@ -62,13 +67,26 @@
         <i class="tyre" style="--comp:#7C8494">?</i> состав неизвестен
       </span>
       <span>Клик по времени — вкл/выкл круг, по номеру круга — весь ряд, по коду пилота — убрать колонку.
-      Кнопка <span class="flag f-SC">SC</span> у номера круга ставит и снимает машину безопасности на всём круге; пит-круги она не перекрывает.</span>
+      Кнопка <span class="flag f-SC">SC</span> у номера круга ставит и снимает машину безопасности на всём круге; пит-круги она не перекрывает.
+      Данные о SC/VSC приходят из судейской OpenF1, ручная пометка нужна для правок.</span>
     </div>
 
-    <p id="tyre-note" class="hint tyre-note" hidden>
-      Составы резины доступны только с сезона 2023 — их отдаёт OpenF1, а не Jolpica.
-      Для более ранних гонок таблица показывается без них.
-    </p>
+    <section id="tyre-panel" class="tyre-panel" hidden>
+      <h2>Резина вручную</h2>
+      <div class="tyre-form">
+        <label for="tyre-driver">Пилот</label>
+        <select id="tyre-driver"></select>
+        <label for="tyre-from">круги с</label>
+        <input id="tyre-from" type="number" min="1" step="1" value="1" />
+        <label for="tyre-to">по</label>
+        <input id="tyre-to" type="number" min="1" step="1" value="1" />
+        <label for="tyre-compound">состав</label>
+        <select id="tyre-compound"></select>
+        <button id="tyre-add" class="ghost">Добавить</button>
+      </div>
+      <div id="tyre-list" class="tyre-list"></div>
+      <p class="hint">Перекрывает данные OpenF1 — ими закрывают пропуски вроде «?» и правят ошибочный состав.</p>
+    </section>
 
     <section id="chart-panel" class="chart-panel" hidden>
       <h2>Темп по кругам</h2>

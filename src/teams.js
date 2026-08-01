@@ -1,4 +1,4 @@
-// Цвета команд по constructorId Jolpica (ID собраны из API за 2018–2026).
+// Цвета команд по team_name из OpenF1 (названия собраны из API за 2023–2026).
 // Оттенки взяты от ливрей и прогнаны через проверку на тёмном фоне: контраст
 // >= 3:1, соседние пары различимы в том числе при дальтонизме.
 //   rb — фирменный #6692FF неотличим от синего Williams (ΔE 13.3), уведён
@@ -8,30 +8,27 @@
 // команды, цвет тут вторичен.
 // ponytail: правится здесь одной строкой, больше цвета нигде не заданы.
 const COLORS = {
-  mclaren: '#FF8000',
-  ferrari: '#E8002D',
-  red_bull: '#3671C6',
-  mercedes: '#27F4D2',
-  aston_martin: '#229971',
-  alpine: '#FF87BC',
-  williams: '#64C4FF',
-  rb: '#8B7FE8',
-  audi: '#EB4526',
-  cadillac: '#79797C',
-  haas: '#E9EEF4',
-  // Команды прошлых сезонов — в одном сезоне с Audi и Cadillac не встречаются.
-  sauber: '#52E252',
-  alfa: '#D42A45',
-  alphatauri: '#4C7FBF',
-  racing_point: '#F596C8',
-  renault: '#FFD800',
-  force_india: '#FF5FA2',
-  toro_rosso: '#469BFF',
+  McLaren: '#FF8000',
+  Ferrari: '#E8002D',
+  'Red Bull Racing': '#3671C6',
+  Mercedes: '#27F4D2',
+  'Aston Martin': '#229971',
+  Alpine: '#FF87BC',
+  Williams: '#64C4FF',
+  'Racing Bulls': '#8B7FE8',
+  Audi: '#EB4526',
+  Cadillac: '#79797C',
+  'Haas F1 Team': '#E9EEF4',
+  // Прежние названия тех же составов: 2023–2025.
+  'Kick Sauber': '#52E252',
+  'Alfa Romeo': '#D42A45',
+  RB: '#8B7FE8',
+  AlphaTauri: '#4C7FBF',
 };
 
 const FALLBACK = '#9AA4B8';
 
-export const teamColor = (constructorId) => COLORS[constructorId] || FALLBACK;
+export const teamColor = (teamName) => COLORS[teamName] || FALLBACK;
 
 // Чёрный или белый текст поверх цвета команды — по воспринимаемой яркости.
 export function onColor(hex) {
