@@ -136,6 +136,9 @@ input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); bor
 .chip:hover { color: var(--text); border-color: var(--muted); }
 .chip.active { padding-left: 11px; }
 .chip.active::before { display: none; }
+/* Пилот, чья покруговка ещё едет: кликнуть можно, но колонка будет пустой. */
+.chip.pending { opacity: .45; }
+.chip.pending::after { content: "…"; margin-left: 3px; }
 
 /* ---------- легенда ---------- */
 

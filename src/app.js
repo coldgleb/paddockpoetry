@@ -124,9 +124,14 @@ function renderTable() {
       const entry = race.laps.get(id)?.get(lap);
       const v = lapValue(entry, metric);
       if (v == null) {
-        // Либо круга нет вовсе, либо потерян нужный сектор — в обоих случаях
-        // сравнивать нечем.
-        html += `<td class="empty" title="${entry ? 'сектор недоступен' : 'круга нет'}">·</td>`;
+        // Три разных причины пустоты, и путать их нельзя: пилот ещё грузится,
+        // OpenF1 не отдал круг вовсе, или у круга нет нужного сектора.
+        const why = race.pending?.has(id)
+          ? 'загружается'
+          : entry
+            ? `нет сектора (${METRICS[metric].label})`
+            : 'OpenF1 не отдал этот круг';
+        html += `<td class="empty" title="${why}">·</td>`;
         continue;
       }
       const flag = flags.get(id)?.get(lap);
@@ -194,14 +199,17 @@ function renderChartPanel() {
 }
 
 function renderDriverChips() {
+  const pending = state.race.pending || new Set();
   els.drivers.innerHTML = state.race.drivers
     .map((d) => {
       const c = teamColor(d.team);
       const active = state.selected.includes(d.id);
+      const wait = pending.has(d.id); // покруговка ещё едет
       const style = active
         ? `background:${c};border-color:${c};color:${onColor(c)}`
         : `--team:${c}`;
-      return `<button class="chip${active ? ' active' : ''}" style="${style}" data-driver="${d.id}" title="${d.name} · ${d.team}">${d.code}</button>`;
+      const hint = `${d.name} · ${d.team}${wait ? ' · покруговка ещё загружается' : ''}`;
+      return `<button class="chip${active ? ' active' : ''}${wait ? ' pending' : ''}" style="${style}" data-driver="${d.id}" title="${hint}">${d.code}</button>`;
     })
     .join('');
 }
@@ -322,6 +330,7 @@ function applyRange() {
   };
   const a = clamp(els.lapFrom.value, 1);
   const b = clamp(els.lapTo.value, max);
+  state.rangeTouched = true; // дальше сами не расширяем
   state.range = { from: Math.min(a, b), to: Math.max(a, b) };
   render();
 }
@@ -335,6 +344,7 @@ function resetRange() {
 }
 
 function toggleDriver(driverId) {
+  state.selectionTouched = true; // дальше сами топ-5 не подставляем
   const i = state.selected.indexOf(driverId);
   if (i >= 0) state.selected.splice(i, 1);
   else state.selected.push(driverId);
@@ -364,7 +374,41 @@ async function loadSeason() {
   }
 }
 
+// Поля кругов и границы диапазона зависят от lapCount, а он растёт по мере
+// дозагрузки пилотов — держим их в одном месте.
+function syncLapInputs() {
+  const max = state.race?.lapCount || 1;
+  els.lapFrom.max = els.lapTo.max = els.tyreFrom.max = els.tyreTo.max = max;
+  els.lapFrom.value = state.range?.from ?? 1;
+  els.lapTo.value = state.range?.to ?? max;
+  els.tyreFrom.value = 1;
+  els.tyreTo.value = max;
+}
+
+// Приехала очередная порция пилотов: дополняем то, что уже на экране.
+function onRaceUpdate(race) {
+  if (state.race !== race) return; // пользователь успел переключить гонку
+  state.flags = flagLaps(race, { manualSC: state.manualSC });
+  // Диапазон расширяем только если его не трогали руками.
+  if (!state.rangeTouched) {
+    state.range = { from: 1, to: race.lapCount };
+    syncLapInputs();
+  }
+  // Доводим выбор до топ-5, пока пользователь сам не вмешался.
+  if (!state.selectionTouched) {
+    state.selected = race.drivers
+      .filter((d) => race.laps.has(d.id))
+      .slice(0, DEFAULT_DRIVERS)
+      .map((d) => d.id);
+  }
+  renderMeta();
+  renderDriverChips();
+  renderTyrePanel();
+  render();
+}
+
 async function load() {
+  state.selectionTouched = false;
   els.load.disabled = true;
   els.table.innerHTML = '';
   els.chart.innerHTML = '';
@@ -375,19 +419,20 @@ async function load() {
   els.chartPanel.hidden = true;
   els.tyrePanel.hidden = true;
   try {
-    const race = await fetchRace(Number(els.race.value), setStatus);
+    // Ждём только первых пилотов, остальные приезжают в onUpdate.
+    const race = await fetchRace(Number(els.race.value), setStatus, onRaceUpdate);
     state.race = race;
     state.manualSC = new Map();
     state.manualTyres = [];
     state.flags = flagLaps(race);
     state.overrides = new Map();
+    state.rangeTouched = false;
     state.range = { from: 1, to: race.lapCount };
-    state.selected = race.drivers.slice(0, DEFAULT_DRIVERS).map((d) => d.id);
-    els.lapFrom.max = els.lapTo.max = race.lapCount;
-    els.lapFrom.value = 1;
-    els.lapTo.value = race.lapCount;
-    els.tyreFrom.value = 1;
-    els.tyreTo.value = race.lapCount;
+    state.selected = race.drivers
+      .filter((d) => race.laps.has(d.id))
+      .slice(0, DEFAULT_DRIVERS)
+      .map((d) => d.id);
+    syncLapInputs();
     renderMeta();
     renderDriverChips();
     renderTyrePanel();
@@ -395,7 +440,6 @@ async function load() {
     els.range.hidden = false;
     els.chartPanel.hidden = false;
     render();
-    setStatus('');
   } catch (e) {
     setStatus(e.message, true);
   } finally {
@@ -443,10 +487,14 @@ window.addEventListener('resize', () => {
   resizeTimer = setTimeout(renderChartPanel, 120);
 });
 
+// data-атрибуты всегда строки, а пилоты теперь опознаются номером машины.
+// Без приведения к числу Map.get промахивался и колонка приходила пустой.
+const driverOf = (el) => Number(el.dataset.driver);
+
 els.drivers.addEventListener('click', (e) => {
   const chip = e.target.closest('.chip');
   if (!chip) return;
-  toggleDriver(chip.dataset.driver);
+  toggleDriver(driverOf(chip));
   renderDriverChips();
   render();
 });
@@ -461,10 +509,10 @@ els.table.addEventListener('click', (e) => {
   if (lapBtn) return toggleRow(+lapBtn.dataset.lap), render();
 
   const drop = e.target.closest('.drop');
-  if (drop) return toggleDriver(drop.dataset.driver), renderDriverChips(), render();
+  if (drop) return toggleDriver(driverOf(drop)), renderDriverChips(), render();
 
   const cell = e.target.closest('.cell');
-  if (cell) return toggleLap(cell.dataset.driver, +cell.dataset.lap), render();
+  if (cell) return toggleLap(driverOf(cell), +cell.dataset.lap), render();
 });
 
 loadSeason();

@@ -9,6 +9,7 @@ const BASE = 'https://api.openf1.org/v1';
 const TIMEOUT = 15000;
 const RETRIES = 3;
 const BURST = 4; // пилотов за раз
+const FIRST = 3; // сколько пилотов ждём перед первой отрисовкой
 
 const cache = new Map(); // sessionKey → гонка
 
@@ -90,8 +91,16 @@ export function parseSafetyCar(messages) {
 
 // --- гонка -----------------------------------------------------------------
 
-export async function fetchRace(sessionKey, onProgress) {
-  if (cache.has(sessionKey)) return cache.get(sessionKey);
+// onUpdate вызывается каждый раз, когда догрузилась очередная порция пилотов:
+// таблица показывается по первой тройке, остальные приезжают следом.
+export async function fetchRace(sessionKey, onProgress, onUpdate) {
+  if (cache.has(sessionKey)) {
+    const done = cache.get(sessionKey);
+    // Из кэша гонка может быть ещё недогруженной — тогда дадим знать, когда
+    // она достроится, иначе колонки так и останутся пустыми.
+    if (done.pending.size && onUpdate) done.whenFilled?.then(onUpdate);
+    return done;
+  }
   const say = (m) => onProgress && onProgress(m);
 
   say('Загружаю состав…');
@@ -120,62 +129,84 @@ export async function fetchRace(sessionKey, onProgress) {
   // Круги тянем по одному пилоту: ответ на всю сессию сразу API не отдаёт.
   const laps = new Map();
   const pits = new Map();
-  let lapCount = 0;
-  for (let i = 0; i < roster.length; i += BURST) {
-    const chunk = roster.slice(i, i + BURST);
+  const race = {
+    sessionKey,
+    season: session?.year ?? new Date(session?.date_start || Date.now()).getFullYear(),
+    date: session?.date_start?.slice(0, 10) || '',
+    raceName: session?.location || 'Гонка',
+    drivers: roster,
+    lapCount: 0,
+    laps,
+    pits,
+    sc: new Map(),
+    tyres: new Map(),
+    pending: new Set(roster.map((d) => d.id)), // ещё не загруженные пилоты
+  };
+
+  const takeDriver = (d, rows) => {
+    const byLap = new Map();
+    for (const l of rows) {
+      const lap = parseInt(l.lap_number, 10);
+      if (!Number.isFinite(lap)) continue;
+      if (lap > race.lapCount) race.lapCount = lap;
+      // Круг заезда в боксы — тот, что перед выездом. Считаем отсюда, а не
+      // из /pit: тот эндпоинт теряет заезды, проверено на Венгрии-2026.
+      if (l.is_pit_out_lap && lap > 1) {
+        if (!pits.has(d.id)) pits.set(d.id, new Set());
+        pits.get(d.id).add(lap - 1);
+      }
+      if (l.lap_duration == null) continue;
+      byLap.set(lap, {
+        t: l.lap_duration,
+        s1: l.duration_sector_1 ?? null,
+        s2: l.duration_sector_2 ?? null,
+        s3: l.duration_sector_3 ?? null,
+      });
+    }
+    if (byLap.size) laps.set(d.id, byLap);
+    race.pending.delete(d.id);
+  };
+
+  const loadChunk = async (chunk) => {
     const pages = await Promise.all(
       chunk.map((d) =>
         getJSON(`${BASE}/laps?session_key=${sessionKey}&driver_number=${d.id}`).catch(() => []),
       ),
     );
-    chunk.forEach((d, k) => {
-      const byLap = new Map();
-      for (const l of pages[k]) {
-        const lap = parseInt(l.lap_number, 10);
-        if (!Number.isFinite(lap)) continue;
-        if (lap > lapCount) lapCount = lap;
-        // Круг заезда в боксы — тот, что перед выездом. Считаем отсюда, а не
-        // из /pit: тот эндпоинт теряет заезды, проверено на Венгрии-2026.
-        if (l.is_pit_out_lap && lap > 1) {
-          if (!pits.has(d.id)) pits.set(d.id, new Set());
-          pits.get(d.id).add(lap - 1);
-        }
-        if (l.lap_duration == null) continue;
-        byLap.set(lap, {
-          t: l.lap_duration,
-          s1: l.duration_sector_1 ?? null,
-          s2: l.duration_sector_2 ?? null,
-          s3: l.duration_sector_3 ?? null,
-        });
-      }
-      if (byLap.size) laps.set(d.id, byLap);
-    });
-    say(`Загружаю покруговку… ${Math.min(100, Math.round(((i + chunk.length) * 100) / roster.length))}%`);
-  }
+    chunk.forEach((d, k) => takeDriver(d, pages[k]));
+  };
 
+  // Первая тройка — чтобы показать таблицу как можно раньше.
+  say(`Загружаю покруговку… первые ${FIRST}`);
+  await loadChunk(roster.slice(0, FIRST));
   if (!laps.size) throw new Error('Для этой гонки покруговка недоступна');
 
-  say('Загружаю резину и судейскую…');
   const [stints, control, meetings] = await Promise.all([
     getJSON(`${BASE}/stints?session_key=${sessionKey}`).catch(() => []),
     getJSON(`${BASE}/race_control?session_key=${sessionKey}`).catch(() => []),
     // Человеческое название этапа лежит только в meetings, в сессии его нет.
     getJSON(`${BASE}/meetings?meeting_key=${session?.meeting_key}`).catch(() => []),
   ]);
-
-  const race = {
-    sessionKey,
-    season: session?.year ?? new Date(session?.date_start || Date.now()).getFullYear(),
-    date: session?.date_start?.slice(0, 10) || '',
-    raceName: meetings[0]?.meeting_name || session?.location || 'Гонка',
-    drivers: roster.filter((d) => laps.has(d.id)),
-    lapCount,
-    laps,
-    pits,
-    sc: parseSafetyCar(control),
-    tyres: expandStints(stints),
-  };
+  race.raceName = meetings[0]?.meeting_name || race.raceName;
+  race.sc = parseSafetyCar(control);
+  race.tyres = expandStints(stints);
   cache.set(sessionKey, race);
-  say('');
+
+  // Остальные догружаются в фоне: таблица уже на экране и дополняется.
+  race.whenFilled = (async () => {
+    const rest = roster.slice(FIRST);
+    for (let i = 0; i < rest.length; i += BURST) {
+      await loadChunk(rest.slice(i, i + BURST));
+      const done = roster.length - race.pending.size;
+      say(race.pending.size ? `Догружаю остальных… ${done} из ${roster.length}` : '');
+      if (onUpdate) onUpdate(race);
+    }
+    // Кто так и не отдал ни одного круга — тот в таблице не нужен.
+    race.drivers = roster.filter((d) => laps.has(d.id));
+    say('');
+    if (onUpdate) onUpdate(race);
+    return race;
+  })();
+
   return race;
 }
