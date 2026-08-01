@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paddock Poetry · темп по кругам</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap">
+      <h1>🏁 Paddock Poetry</h1>
+      <p class="tagline">Покруговка гонки Ф1: выбери пилотов и круги — получи средний темп и отставание.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="controls">
+      <div class="field">
+        <label for="season">Сезон</label>
+        <select id="season"></select>
+      </div>
+      <div class="field wide">
+        <label for="race">Гонка</label>
+        <select id="race" disabled></select>
+      </div>
+      <div class="field">
+        <button id="load" class="primary">Загрузить</button>
+      </div>
+      <div class="field">
+        <label for="threshold">Порог выброса <span id="threshold-value">107%</span></label>
+        <input id="threshold" type="range" min="100" max="115" step="1" value="107" />
+      </div>
+    </section>
+
+    <div id="status" class="status" hidden></div>
+
+    <div id="drivers" class="drivers"></div>
+
+    <p class="hint">
+      Клик по времени круга — включить или выключить его в расчёте. Клик по номеру круга слева —
+      переключить весь ряд. Клик по коду пилота в шапке — убрать колонку.
+      По умолчанию выключены круг 1, заезды в боксы (PIT), выезды из боксов (OUT) и круги под SC/VSC.
+      Приглушённые времена без зачёркивания — выбросы, отсечённые порогом.
+    </p>
+
+    <section id="table" class="table-wrap"></section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Данные — <a href="https://jolpi.ca/" target="_blank" rel="noopener">Jolpica API</a> (преемник Ergast).
+      Независимый проект, не связанный с Formula 1.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

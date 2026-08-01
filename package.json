@@ -1,0 +1,11 @@
+{
+  "name": "paddockpoetry",
+  "version": "0.1.0",
+  "description": "Анализ покруговок Формулы-1: средний темп и отставания по выбранным пилотам и кругам",
+  "type": "module",
+  "scripts": {
+    "start": "npx --yes serve@latest -l 8000 .",
+    "test": "node src/pace.test.js"
+  },
+  "license": "MIT"
+}
