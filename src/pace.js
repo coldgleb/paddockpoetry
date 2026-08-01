@@ -96,7 +96,7 @@ export function formatLapTime(sec) {
 
 // Темп = среднее выбранных кругов, но круги медленнее личной медианы
 // более чем в paceThreshold раз выбрасываются (SC-заезды, ошибки, трафик).
-export function computePace(race, flags, { selected, overrides, paceThreshold = 1.07, range = null }) {
+export function computePace(race, flags, { selected, overrides, paceThreshold = 1.02, range = null }) {
   const rows = new Map();
 
   for (const driverId of selected) {

@@ -50,25 +50,35 @@ export function renderChart(host, series, { from, to }) {
     grid += `<text class="tick tx" x="${x(lap).toFixed(1)}" y="${M.top + ih + 20}">${lap}</text>`;
   }
 
-  // --- линии: сплошные по всем кругам пилота, без разрывов ---
-  let paths = '';
+  // --- линии ---
+  // Рисуем только зачётные круги. Соседние соединяем цветом команды, а разрыв
+  // на месте выброшенных — тонким серым пунктиром: видно, что там пропуск,
+  // но пики пит-кругов больше не растягивают шкалу.
+  let bridges = '';
+  let lines = '';
   for (const s of drawn) {
-    let d = '';
-    let prevLap = null;
-    for (const [lap, v] of s.points) {
-      d += `${prevLap !== null && lap === prevLap + 1 ? 'L' : 'M'}${x(lap).toFixed(1)} ${y(v).toFixed(1)}`;
-      prevLap = lap;
+    let solid = '';
+    let prev = null;
+    for (let i = 0; i < s.points.length; i++) {
+      const [lap, v] = s.points[i];
+      const px = x(lap).toFixed(1);
+      const py = y(v).toFixed(1);
+      if (prev) {
+        const seg = `M${prev.px} ${prev.py}L${px} ${py}`;
+        if (lap === prev.lap + 1) solid += seg;
+        else bridges += seg;
+      }
+      // Круг без соседей рисуем точкой: отрезка у него нет, и без неё он
+      // пропал бы с графика совсем.
+      const left = i > 0 && s.points[i - 1][0] === lap - 1;
+      const right = i < s.points.length - 1 && s.points[i + 1][0] === lap + 1;
+      if (!left && !right) lines += `<circle class="dot" cx="${px}" cy="${py}" r="2" fill="${s.color}" />`;
+      prev = { lap, px, py };
     }
-    paths += `<path class="line" d="${d}" stroke="${s.color}" />`;
+    lines += `<path class="line" d="${solid}" stroke="${s.color}" />`;
   }
-  // Круги, не попавшие в темп (пит, SC, выбросы, выключенные вручную),
-  // помечаем полой точкой: линия целая, но видно, что в счёт они не пошли.
-  for (const s of drawn) {
-    for (const [lap, v] of s.points) {
-      if (!s.excluded?.has(lap)) continue;
-      paths += `<circle class="skip" cx="${x(lap).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.6" stroke="${s.color}" />`;
-    }
-  }
+  // Пунктир кладём под цветные линии, чтобы он их не перечёркивал.
+  const paths = `<path class="bridge" d="${bridges}" />` + lines;
 
   // Коды пилотов — легендой над графиком, а не подписями у концов линий:
   // в поле графика они наезжали на линии и читались как разрыв.

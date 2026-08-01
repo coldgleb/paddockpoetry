@@ -11,7 +11,7 @@ const state = {
   flags: null,
   selected: [], // driverId, порядок = порядок колонок
   overrides: new Map(), // "driverId:lap" → true/false, ручной клик
-  paceThreshold: 1.07,
+  paceThreshold: 1.02,
   range: null, // { from, to } — круги с X по Y
   manualSC: new Map(), // круг → true/false, ручная пометка машины безопасности
 };
@@ -144,8 +144,8 @@ function stickHeader() {
   }
 }
 
-// На графике — все круги пилота в выбранном окне, линия сплошная. Те, что
-// не пошли в темп, помечаются полой точкой, а не разрывом линии.
+// На графике только зачётные круги — те же точки, что дали темп. Круги,
+// не прошедшие порог, из графика убраны, разрыв рисуется пунктиром.
 function renderChartPanel() {
   const { race, flags, selected, overrides, paceThreshold, range } = state;
   if (!race) return;
@@ -155,23 +155,12 @@ function renderChartPanel() {
 
   renderChart(
     els.chart,
-    selected.map((id) => {
-      const counted = new Set(rows.get(id).points.map(([lap]) => lap));
-      const points = [];
-      const excluded = new Set();
-      for (const [lap, v] of race.times.get(id) || []) {
-        if (lap < win.from || lap > win.to) continue;
-        points.push([lap, v]);
-        if (!counted.has(lap)) excluded.add(lap);
-      }
-      return {
-        id,
-        code: byId.get(id)?.code || id,
-        color: teamColor(byId.get(id)?.constructorId),
-        points,
-        excluded,
-      };
-    }),
+    selected.map((id) => ({
+      id,
+      code: byId.get(id)?.code || id,
+      color: teamColor(byId.get(id)?.constructorId),
+      points: rows.get(id).points, // только зачётные круги — те же, что дали темп
+    })),
     win,
   );
 }
