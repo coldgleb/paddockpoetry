@@ -13,6 +13,7 @@ const state = {
   overrides: new Map(), // "driverId:lap" → true/false, ручной клик
   paceThreshold: 1.07,
   range: null, // { from, to } — круги с X по Y
+  manualSC: new Map(), // круг → true/false, ручная пометка машины безопасности
 };
 
 const $ = (id) => document.getElementById(id);
@@ -100,7 +101,13 @@ function renderTable() {
   const from = range?.from ?? 1;
   const to = range?.to ?? race.lapCount;
   for (let lap = from; lap <= to; lap++) {
-    html += `<tr><th class="lapno"><button class="lap" data-lap="${lap}" title="Переключить весь круг">${lap}</button></th>`;
+    const sc = isSC(lap);
+    html +=
+      `<tr><th class="lapno"><span class="lapcell">` +
+      `<button class="lap" data-lap="${lap}" title="Переключить весь круг">${lap}</button>` +
+      `<button class="sc-btn${sc ? ' on' : ''}" data-sc="${lap}" aria-pressed="${sc}" ` +
+      `title="${sc ? 'Снять машину безопасности с круга' : 'Пометить круг машиной безопасности'}">SC</button>` +
+      `</span></th>`;
     for (const id of selected) {
       const t = race.times.get(id)?.get(lap);
       if (t == null) {
@@ -196,6 +203,23 @@ function renderMeta() {
 const included = (id, lap) =>
   isIncluded(id, lap, state.flags, state.overrides, state.range);
 
+// Круг под машиной безопасности: ручная пометка либо автоопределение.
+// Проверяем ручную первой — если на этом круге все пилоты в боксах, флага
+// 'SC' не будет ни у кого, а пометка всё равно стоит.
+function isSC(lap) {
+  if (state.manualSC.has(lap)) return state.manualSC.get(lap);
+  for (const byLap of state.flags.values()) if (byLap.get(lap) === 'SC') return true;
+  return false;
+}
+
+// SC — состояние трассы, а не пилота, поэтому ставится на весь круг сразу.
+// PIT и OUT он не перекрывает: приоритет задан порядком проверок в flagLaps.
+function toggleSC(lap) {
+  state.manualSC.set(lap, !isSC(lap));
+  state.flags = flagLaps(state.race, { manualSC: state.manualSC });
+  render();
+}
+
 function toggleLap(driverId, lap) {
   const k = key(driverId, lap);
   const next = !included(driverId, lap);
@@ -278,6 +302,7 @@ async function load() {
   try {
     const race = await fetchRace(els.season.value, els.race.value, setStatus);
     state.race = race;
+    state.manualSC = new Map();
     state.flags = flagLaps(race);
     state.overrides = new Map();
     state.range = { from: 1, to: race.lapCount };
@@ -336,6 +361,9 @@ els.drivers.addEventListener('click', (e) => {
 // ponytail: полный ререндер таблицы на каждый клик; ~70×20 ячеек — незаметно.
 // Начнёт тормозить — обновлять точечно только шапку с темпом и отставанием.
 els.table.addEventListener('click', (e) => {
+  const scBtn = e.target.closest('.sc-btn');
+  if (scBtn) return toggleSC(+scBtn.dataset.sc);
+
   const lapBtn = e.target.closest('.lap');
   if (lapBtn) return toggleRow(+lapBtn.dataset.lap), render();
 

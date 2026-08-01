@@ -17,7 +17,11 @@ export function median(values) {
 
 // Помечает круги, которые не идут в темп по умолчанию.
 // Флаг: null | 'LAP1' | 'PIT' | 'OUT' | 'SC'
-export function flagLaps(race, { scThreshold = 1.15 } = {}) {
+// manualSC — Map<круг, boolean>: ручная пометка машины безопасности.
+// true ставит SC там, где автоопределение промолчало, false снимает там,
+// где оно ошиблось. Порядок проверок ниже даёт нужный приоритет: PIT и OUT
+// сильнее SC, то есть ручной SC перекрывает время круга, но не пит-метки.
+export function flagLaps(race, { scThreshold = 1.15, manualSC = null } = {}) {
   // Медиана каждого круга по всем пилотам — общая для всех медленная,
   // значит на трассе SC/VSC, а не проблемы конкретного пилота.
   // ponytail: SC определяется эвристикой по медиане круга; Jolpica не отдаёт
@@ -36,6 +40,12 @@ export function flagLaps(race, { scThreshold = 1.15 } = {}) {
   if (baseline != null) {
     for (const [lap, m] of lapMedians) {
       if (m > baseline * scThreshold) scLaps.add(lap);
+    }
+  }
+  if (manualSC) {
+    for (const [lap, on] of manualSC) {
+      if (on) scLaps.add(lap);
+      else scLaps.delete(lap);
     }
   }
 

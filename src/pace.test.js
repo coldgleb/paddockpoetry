@@ -123,6 +123,34 @@ assert.equal(empty.get('NOR').best, false);
 assert.equal(run({ selected: [] }).size, 0);
 assert.equal(run({ selected: ['GHOST'] }).get('GHOST').pace, null, 'пилот без кругов не ломает расчёт');
 
+// --- ручная пометка SC -----------------------------------------------------
+// Круг 7 чистый у всех; помечаем вручную — должен выпасть из темпа.
+const scOn = flagLaps(race, { manualSC: new Map([[7, true]]) });
+assert.equal(scOn.get('NOR').get(7), 'SC');
+assert.equal(scOn.get('HAM').get(7), 'SC');
+assert.equal(
+  computePace(race, scOn, { selected: ALL, overrides: new Map(), paceThreshold: 1.07 })
+    .get('NOR').usedLaps,
+  base.get('NOR').usedLaps - 1,
+);
+// Главное: ручной SC перекрывает время круга, но не пит-метки.
+const scOnPits = flagLaps(race, { manualSC: new Map([[13, true], [14, true], [11, true], [12, true]]) });
+assert.equal(scOnPits.get('NOR').get(13), 'PIT', 'PIT сильнее ручного SC');
+assert.equal(scOnPits.get('NOR').get(14), 'OUT', 'OUT сильнее ручного SC');
+assert.equal(scOnPits.get('HAM').get(11), 'PIT', 'PIT сильнее ручного SC');
+assert.equal(scOnPits.get('HAM').get(12), 'OUT', 'OUT сильнее ручного SC');
+// А у пилотов без пит-стопа на этих кругах SC встаёт.
+assert.equal(scOnPits.get('LEC').get(13), 'SC');
+assert.equal(scOnPits.get('NOR').get(11), 'SC');
+// Старт по-прежнему главнее всего.
+assert.equal(flagLaps(race, { manualSC: new Map([[1, true]]) }).get('NOR').get(1), 'LAP1');
+// false снимает SC там, где автоопределение ошиблось.
+const scAuto = flagLaps(scRace);
+assert.equal(scAuto.get('A').get(5), 'SC');
+assert.equal(flagLaps(scRace, { manualSC: new Map([[5, false]]) }).get('A').get(5), undefined);
+// Пустая карта ничего не меняет.
+assert.deepEqual(flagLaps(race, { manualSC: new Map() }).get('NOR'), flags.get('NOR'));
+
 // --- формат времени круга --------------------------------------------------
 assert.equal(formatLapTime(83.456), '1:23.456');
 assert.equal(formatLapTime(102.741), '1:42.741');
