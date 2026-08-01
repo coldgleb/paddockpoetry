@@ -1,6 +1,7 @@
 import { fetchSeasonRaces, fetchRace } from './jolpica.js';
-import { flagLaps, computePace, isIncluded, key } from './pace.js';
+import { flagLaps, computePace, isIncluded, autoIncluded, formatLapTime, key } from './pace.js';
 import { teamColor, onColor } from './teams.js';
+import { renderChart } from './chart.js';
 
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
 const DEFAULT_DRIVERS = 5; // сразу показываем топ-5, остальных пилотов добавляет пользователь
@@ -11,6 +12,7 @@ const state = {
   selected: [], // driverId, порядок = порядок колонок
   overrides: new Map(), // "driverId:lap" → true/false, ручной клик
   paceThreshold: 1.07,
+  range: null, // { from, to } — круги с X по Y
 };
 
 const $ = (id) => document.getElementById(id);
@@ -25,6 +27,12 @@ const els = {
   drivers: $('drivers'),
   legend: $('legend'),
   table: $('table'),
+  chart: $('chart'),
+  chartPanel: $('chart-panel'),
+  range: $('range'),
+  lapFrom: $('lap-from'),
+  lapTo: $('lap-to'),
+  lapReset: $('lap-reset'),
 };
 
 function setStatus(msg, isError = false) {
@@ -35,10 +43,22 @@ function setStatus(msg, isError = false) {
 
 const fmt = (v) => (v == null ? '—' : v.toFixed(3));
 
+// Время круга: минуты мельче и приглушены — они всё равно всегда одинаковые,
+// смысл несут секунды и доли.
+function lapHTML(sec) {
+  const [m, rest] = formatLapTime(sec).split(':');
+  return `<span class="t"><span class="t-m">${m}:</span>${rest}</span>`;
+}
+
 // --- расчёт и рендер -------------------------------------------------------
 
 function render() {
-  const { race, flags, selected, overrides, paceThreshold } = state;
+  renderTable();
+  renderChartPanel();
+}
+
+function renderTable() {
+  const { race, flags, selected, overrides, paceThreshold, range } = state;
   if (!race) return;
 
   if (!selected.length) {
@@ -46,12 +66,9 @@ function render() {
     return;
   }
 
-  const rows = computePace(race, flags, { selected, overrides, paceThreshold });
+  const rows = computePace(race, flags, { selected, overrides, paceThreshold, range });
   const byId = new Map(race.drivers.map((d) => [d.driverId, d]));
   const color = (id) => teamColor(byId.get(id)?.constructorId);
-  // Полоска отставания — относительно самого большого разрыва на экране,
-  // иначе при близких темпах все полоски вырождаются в точку.
-  const maxDiff = Math.max(...[...rows.values()].map((r) => r.diff || 0), 0.001);
 
   // Ширину столбца кругов задаём через <col>; цвет команды туда не вешаем —
   // на колонки наследуются только background/border/width, но не переменные.
@@ -70,15 +87,17 @@ function render() {
     .join('')}</tr>`;
 
   html += `<tr class="r-pace"><th class="corner">Темп</th>${selected
-    .map((id) => `<td>${fmt(rows.get(id).pace)}</td>`)
+    .map((id) => {
+      const p = rows.get(id).pace;
+      return `<td>${p == null ? '—' : lapHTML(p)}</td>`;
+    })
     .join('')}</tr>`;
 
   html += `<tr class="r-diff"><th class="corner">Отставание</th>${selected
     .map((id) => {
       const r = rows.get(id);
       if (r.best) return '<td class="best"><span class="tag-best">BEST</span></td>';
-      const w = r.diff == null ? 0 : Math.round((r.diff / maxDiff) * 100);
-      return `<td style="--team:${color(id)}"><span class="gap">${fmt(r.diff)}</span><span class="gap-bar" style="width:${w}%"></span></td>`;
+      return `<td>${fmt(r.diff)}</td>`;
     })
     .join('')}</tr>`;
 
@@ -93,14 +112,14 @@ function render() {
         continue;
       }
       const flag = flags.get(id)?.get(lap);
-      const on = isIncluded(id, lap, flags, overrides);
+      const on = isIncluded(id, lap, flags, overrides, range);
       const outlier = rows.get(id).dropped.has(lap);
       const cls = ['cell', on ? (outlier ? 'outlier' : 'on') : 'off'].join(' ');
       // Пит-круги показываем меткой, как на таймингах; при ручном включении —
       // настоящим временем, иначе непонятно, что именно пошло в темп.
       const marked = !on && (flag === 'PIT' || flag === 'OUT' || flag === 'SC');
-      const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : t.toFixed(3);
-      const hint = `${t.toFixed(3)}${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
+      const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : lapHTML(t);
+      const hint = `${formatLapTime(t)}${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
       html += `<td class="${cls}" data-driver="${id}" data-lap="${lap}" title="${hint}">${label}</td>`;
     }
     html += '</tr>';
@@ -120,6 +139,25 @@ function stickHeader() {
     for (const cell of tr.children) cell.style.top = `${top}px`;
     top += tr.getBoundingClientRect().height;
   }
+}
+
+// График строится из тех же точек, что легли в темп, — расходиться не может.
+function renderChartPanel() {
+  const { race, flags, selected, overrides, paceThreshold, range } = state;
+  if (!race) return;
+  const rows = computePace(race, flags, { selected, overrides, paceThreshold, range });
+  const byId = new Map(race.drivers.map((d) => [d.driverId, d]));
+
+  renderChart(
+    els.chart,
+    selected.map((id) => ({
+      id,
+      code: byId.get(id)?.code || id,
+      color: teamColor(byId.get(id)?.constructorId),
+      points: rows.get(id).points,
+    })),
+    range || { from: 1, to: race.lapCount },
+  );
 }
 
 function renderDriverChips() {
@@ -146,20 +184,47 @@ function renderMeta() {
 
 // --- переключение кругов ---------------------------------------------------
 
+const included = (id, lap) =>
+  isIncluded(id, lap, state.flags, state.overrides, state.range);
+
 function toggleLap(driverId, lap) {
   const k = key(driverId, lap);
-  const next = !isIncluded(driverId, lap, state.flags, state.overrides);
-  // Если ручное значение совпало с автоматическим — убираем override.
-  if (next === !state.flags.get(driverId)?.get(lap)) state.overrides.delete(k);
+  const next = !included(driverId, lap);
+  // Если ручное значение совпало с автоматическим — убираем override,
+  // иначе после сброса диапазона остались бы «залипшие» круги.
+  if (next === autoIncluded(driverId, lap, state.flags, state.range)) state.overrides.delete(k);
   else state.overrides.set(k, next);
 }
 
 function toggleRow(lap) {
   const present = state.selected.filter((id) => state.race.times.get(id)?.has(lap));
-  const anyOn = present.some((id) => isIncluded(id, lap, state.flags, state.overrides));
+  const anyOn = present.some((id) => included(id, lap));
   for (const id of present) {
-    if (isIncluded(id, lap, state.flags, state.overrides) === anyOn) toggleLap(id, lap);
+    if (included(id, lap) === anyOn) toggleLap(id, lap);
   }
+}
+
+// Диапазон кругов «с X по Y». Поля не переписываем на каждом нажатии —
+// иначе набор «40» при верхней границе 21 дёргал бы ввод из-под пальцев.
+// Границы просто сортируем: перевёрнутый ввод читается как тот же интервал.
+function applyRange() {
+  const max = state.race?.lapCount || 1;
+  const clamp = (v, dflt) => {
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? Math.min(Math.max(n, 1), max) : dflt;
+  };
+  const a = clamp(els.lapFrom.value, 1);
+  const b = clamp(els.lapTo.value, max);
+  state.range = { from: Math.min(a, b), to: Math.max(a, b) };
+  render();
+}
+
+function resetRange() {
+  const max = state.race?.lapCount || 1;
+  els.lapFrom.value = 1;
+  els.lapTo.value = max;
+  state.range = { from: 1, to: max };
+  render();
 }
 
 function toggleDriver(driverId) {
@@ -195,21 +260,30 @@ async function loadSeason() {
 async function load() {
   els.load.disabled = true;
   els.table.innerHTML = '';
+  els.chart.innerHTML = '';
   els.drivers.innerHTML = '';
   els.legend.hidden = true;
   els.meta.hidden = true;
+  els.range.hidden = true;
+  els.chartPanel.hidden = true;
   try {
     const race = await fetchRace(els.season.value, els.race.value, setStatus);
     state.race = race;
     state.flags = flagLaps(race);
     state.overrides = new Map();
+    state.range = { from: 1, to: race.lapCount };
     state.selected = race.drivers
       .filter((d) => race.times.has(d.driverId))
       .slice(0, DEFAULT_DRIVERS)
       .map((d) => d.driverId);
+    els.lapFrom.max = els.lapTo.max = race.lapCount;
+    els.lapFrom.value = 1;
+    els.lapTo.value = race.lapCount;
     renderMeta();
     renderDriverChips();
     els.legend.hidden = false;
+    els.range.hidden = false;
+    els.chartPanel.hidden = false;
     render();
     setStatus('');
   } catch (e) {
@@ -229,6 +303,17 @@ els.threshold.addEventListener('input', () => {
   state.paceThreshold = els.threshold.value / 100;
   els.thresholdValue.textContent = `${els.threshold.value}%`;
   render();
+});
+
+els.lapFrom.addEventListener('input', applyRange);
+els.lapTo.addEventListener('input', applyRange);
+els.lapReset.addEventListener('click', resetRange);
+
+// Ширина графика зависит от вёрстки — при ресайзе перерисовываем только его.
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(renderChartPanel, 120);
 });
 
 els.drivers.addEventListener('click', (e) => {

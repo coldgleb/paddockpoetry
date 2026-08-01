@@ -1,6 +1,8 @@
 // Self-check: node src/pace.test.js
 import assert from 'node:assert/strict';
-import { parseLapTime, median, flagLaps, computePace, isIncluded, key } from './pace.js';
+import {
+  parseLapTime, median, flagLaps, computePace, isIncluded, formatLapTime, key,
+} from './pace.js';
 import { teamColor, onColor } from './teams.js';
 
 // Референс-таблица пользователя, круги 1..21. Времена круга 1 и пит-кругов
@@ -120,6 +122,53 @@ assert.equal(empty.get('NOR').diff, null);
 assert.equal(empty.get('NOR').best, false);
 assert.equal(run({ selected: [] }).size, 0);
 assert.equal(run({ selected: ['GHOST'] }).get('GHOST').pace, null, 'пилот без кругов не ломает расчёт');
+
+// --- формат времени круга --------------------------------------------------
+assert.equal(formatLapTime(83.456), '1:23.456');
+assert.equal(formatLapTime(102.741), '1:42.741');
+assert.equal(formatLapTime(60), '1:00.000');
+assert.equal(formatLapTime(59.9), '0:59.900');
+assert.equal(formatLapTime(9.5), '0:09.500');
+// Округление до миллисекунд идёт ДО деления на минуты, иначе тут вышло бы «1:60.000».
+assert.equal(formatLapTime(119.9995), '2:00.000');
+assert.equal(formatLapTime(null), '—');
+assert.equal(formatLapTime(NaN), '—');
+// Разбор и печать должны быть обратны друг другу.
+for (const s of ['1:23.456', '1:42.741', '0:59.900']) {
+  assert.equal(formatLapTime(parseLapTime(s)), s);
+}
+
+// --- диапазон кругов «с X по Y» --------------------------------------------
+const inRange = (r) => run({ range: r });
+const r5to12 = inRange({ from: 5, to: 12 });
+// Круги 5..12 у NOR: чистые все, кроме — PIT у него на 13, так что 8 штук.
+assert.equal(r5to12.get('NOR').usedLaps, 8);
+assert.equal(isIncluded('NOR', 4, flags, new Map(), { from: 5, to: 12 }), false);
+assert.equal(isIncluded('NOR', 5, flags, new Map(), { from: 5, to: 12 }), true);
+assert.equal(isIncluded('NOR', 13, flags, new Map(), { from: 5, to: 20 }), false, 'PIT сильнее диапазона');
+// Диапазон, накрывающий пит-стоп, всё равно его исключает.
+assert.equal(inRange({ from: 12, to: 15 }).get('HAM').usedLaps, 3, 'из 12..15 у HAM выпадает OUT на 12');
+// Ручной клик перекрывает диапазон.
+assert.equal(
+  isIncluded('NOR', 2, flags, new Map([[key('NOR', 2), true]]), { from: 5, to: 12 }),
+  true, 'ручное включение сильнее диапазона',
+);
+// Диапазон без единого круга не должен ронять расчёт.
+const пусто = inRange({ from: 1, to: 1 }); // круг 1 у всех помечен LAP1
+assert.equal(пусто.get('NOR').pace, null);
+assert.equal(пусто.get('NOR').diff, null);
+// Без диапазона поведение прежнее.
+assert.equal(inRange(null).get('NOR').usedLaps, base.get('NOR').usedLaps);
+
+// points — ровно то, что легло в темп: график не может разойтись с числом.
+for (const [id, r] of base) {
+  assert.equal(r.points.length, r.usedLaps, `${id}: points и usedLaps разошлись`);
+  if (r.pace != null) {
+    const avg = r.points.reduce((a, [, v]) => a + v, 0) / r.points.length;
+    assert.ok(Math.abs(avg - r.pace) < 1e-9, `${id}: среднее по points != pace`);
+  }
+  for (const [lap] of r.points) assert.equal(r.dropped.has(lap), false, 'выброс попал в points');
+}
 
 // --- цвета команд ----------------------------------------------------------
 // Список constructorId собран из /{сезон}/constructors за 2018–2026. Если в

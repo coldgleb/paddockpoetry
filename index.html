@@ -38,16 +38,29 @@
     <div id="meta" class="meta" hidden></div>
     <div id="drivers" class="drivers"></div>
 
+    <div id="range" class="range" hidden>
+      <label for="lap-from">Круги с</label>
+      <input id="lap-from" type="number" min="1" step="1" />
+      <label for="lap-to">по</label>
+      <input id="lap-to" type="number" min="1" step="1" />
+      <button id="lap-reset" class="ghost">Все круги</button>
+    </div>
+
     <div id="legend" class="legend" hidden>
       <b>В расчёте</b>
-      <span><i>84.418</i> — учитывается</span>
-      <span><i class="sw-off">84.418</i> — выключен</span>
-      <span><i class="sw-outlier">84.418</i> — выброс, отсечён порогом</span>
+      <span><i>1:24.418</i> — учитывается</span>
+      <span><i class="sw-off">1:24.418</i> — выключен</span>
+      <span><i class="sw-outlier">1:24.418</i> — выброс, отсечён порогом</span>
       <span><span class="flag">PIT</span> заезд в боксы</span>
       <span><span class="flag">OUT</span> круг после пит-стопа</span>
       <span><span class="flag f-SC">SC</span> машина безопасности</span>
       <span>Клик по времени — вкл/выкл круг, по номеру круга — весь ряд, по коду пилота — убрать колонку.</span>
     </div>
+
+    <section id="chart-panel" class="chart-panel" hidden>
+      <h2>Темп по кругам</h2>
+      <div id="chart" class="chart"></div>
+    </section>
 
     <section id="table" class="table-wrap"></section>
   </main>

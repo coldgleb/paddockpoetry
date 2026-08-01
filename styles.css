@@ -157,11 +157,84 @@ input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); bor
 .legend .sw-off { color: var(--muted); text-decoration: line-through; }
 .legend .sw-outlier { color: var(--muted); opacity: .65; }
 
+/* ---------- диапазон кругов ---------- */
+
+.range {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.range label { text-transform: none; letter-spacing: 0; font-size: 13.5px; font-weight: 500; color: var(--text-2); }
+.range input {
+  width: 74px;
+  font: inherit;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 7px 8px;
+}
+button.ghost { padding: 7px 12px; font-size: 13px; color: var(--text-2); }
+button.ghost:hover { color: var(--text); border-color: var(--muted); }
+
+/* ---------- график ---------- */
+
+.chart-panel {
+  padding: 16px 18px 10px;
+  margin-bottom: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.chart-panel h2 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; }
+
+.chart .grid { stroke: var(--line-soft); stroke-width: 1; }
+.chart .axis-line { stroke: var(--line); stroke-width: 1; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .ty { text-anchor: end; dominant-baseline: middle; }
+.chart .tx { text-anchor: middle; }
+.chart .axis { fill: var(--muted); font-size: 11px; text-anchor: middle; }
+.chart .lbl { font-size: 12px; font-weight: 700; dominant-baseline: middle; }
+.chart .hit { fill: transparent; }
+.chart .cursor line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+
+.chart .tip {
+  position: absolute;
+  pointer-events: none;
+  min-width: 118px;
+  padding: 8px 10px;
+  background: #0d1017;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .45);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.chart .tip b { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.chart .tip span { display: flex; align-items: center; gap: 7px; line-height: 1.7; }
+.chart .tip i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
+.chart .tip em { margin-left: auto; font-style: normal; font-weight: 600; }
+
 /* ---------- таблица ---------- */
 
+/* Скролл только один — страничный. Своего у таблицы нет, поэтому шапка
+   липнет к верху окна, а столбец кругов — к левому краю. */
 .table-wrap {
-  max-height: 74vh;
-  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--panel);
@@ -201,21 +274,12 @@ button.drop {
 }
 button.drop:hover { opacity: .65; }
 
-tr.r-team td { color: var(--muted); font-size: 11.5px; font-weight: 500; }
-tr.r-pace td { color: var(--text); font-weight: 700; font-size: 16px; }
+tr.r-team td { color: var(--muted); font-size: 12.5px; font-weight: 500; }
+tr.r-pace td { color: var(--text); font-weight: 700; font-size: 17.5px; }
 
-/* Отставание: число плюс полоска длиной пропорционально разрыву.
-   position тут не трогаем: ячейка уже sticky, а relative перебивал его
+/* position тут не трогаем: ячейка уже sticky, а relative перебивал его
    по специфичности — строка переставала липнуть и её затирали круги. */
-tr.r-diff td { color: var(--text-2); font-size: 13.5px; padding-bottom: 6px; }
-.gap-bar {
-  position: absolute;
-  right: 12px; bottom: 4px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--team);
-  opacity: .8;
-}
+tr.r-diff td { color: var(--text-2); font-size: 15px; padding-bottom: 6px; }
 tr.r-diff td.best { color: var(--best); }
 .tag-best {
   display: inline-block;
@@ -243,7 +307,14 @@ button.lap:hover { color: var(--accent); }
 
 tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
 
-.cell { cursor: pointer; padding-block: 5px; font-size: 13.5px; }
+.cell { cursor: pointer; padding-block: 5px; font-size: 15px; }
+
+/* Минуты в «1:23.456» несут ноль информации — приглушаем и чуть мельчим,
+   чтобы взгляд цеплялся за секунды и доли. Сильнее уменьшать нельзя:
+   минута начинает читаться как подстрочный индекс. */
+.t-m { font-size: .84em; color: var(--muted); font-weight: 400; }
+.cell.off .t-m, .cell.outlier .t-m { color: inherit; }
+tr.r-pace .t-m { font-weight: 500; }
 .cell:hover { background: #222836 !important; color: #fff; }
 .cell.on { color: var(--text); }
 .cell.off { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }

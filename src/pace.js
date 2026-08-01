@@ -58,16 +58,32 @@ export function flagLaps(race, { scThreshold = 1.15 } = {}) {
 
 export const key = (driverId, lap) => `${driverId}:${lap}`;
 
-// Ручной клик по кругу перекрывает автоматические флаги.
-export function isIncluded(driverId, lap, flags, overrides) {
+// Диапазон кругов «с X по Y»; null — без ограничения.
+export const inRange = (lap, range) => !range || (lap >= range.from && lap <= range.to);
+
+// Что попадает в темп по умолчанию: круг без флага и внутри диапазона.
+// Ручной клик по кругу перекрывает и то, и другое.
+export const autoIncluded = (driverId, lap, flags, range) =>
+  !flags.get(driverId)?.get(lap) && inRange(lap, range);
+
+export function isIncluded(driverId, lap, flags, overrides, range) {
   const k = key(driverId, lap);
   if (overrides.has(k)) return overrides.get(k);
-  return !flags.get(driverId)?.get(lap);
+  return autoIncluded(driverId, lap, flags, range);
+}
+
+// Секунды → «1:23.456». Округляем до миллисекунд до деления, иначе 119.9995
+// превратилось бы в «1:60.000».
+export function formatLapTime(sec) {
+  if (sec == null || !Number.isFinite(sec)) return '—';
+  const ms = Math.round(sec * 1000);
+  const m = Math.floor(ms / 60000);
+  return `${m}:${((ms - m * 60000) / 1000).toFixed(3).padStart(6, '0')}`;
 }
 
 // Темп = среднее выбранных кругов, но круги медленнее личной медианы
 // более чем в paceThreshold раз выбрасываются (SC-заезды, ошибки, трафик).
-export function computePace(race, flags, { selected, overrides, paceThreshold = 1.07 }) {
+export function computePace(race, flags, { selected, overrides, paceThreshold = 1.07, range = null }) {
   const rows = new Map();
 
   for (const driverId of selected) {
@@ -75,18 +91,22 @@ export function computePace(race, flags, { selected, overrides, paceThreshold = 
     const used = [];
     if (times) {
       for (const [lap, v] of times) {
-        if (isIncluded(driverId, lap, flags, overrides)) used.push([lap, v]);
+        if (isIncluded(driverId, lap, flags, overrides, range)) used.push([lap, v]);
       }
     }
     const med = median(used.map(([, v]) => v));
     const dropped = new Set();
-    const kept = [];
+    // points — ровно те круги, что легли в темп. График рисуется из них,
+    // поэтому он не может разойтись с числом в шапке.
+    const points = [];
     for (const [lap, v] of used) {
       if (med != null && v > med * paceThreshold) dropped.add(lap);
-      else kept.push(v);
+      else points.push([lap, v]);
     }
-    const pace = kept.length ? kept.reduce((a, b) => a + b, 0) / kept.length : null;
-    rows.set(driverId, { pace, diff: null, best: false, usedLaps: kept.length, dropped });
+    const pace = points.length
+      ? points.reduce((a, [, v]) => a + v, 0) / points.length
+      : null;
+    rows.set(driverId, { pace, diff: null, best: false, usedLaps: points.length, dropped, points });
   }
 
   const paces = [...rows.values()].map((r) => r.pace).filter((p) => p != null);
