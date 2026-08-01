@@ -66,10 +66,13 @@ export const inRange = (lap, range) => !range || (lap >= range.from && lap <= ra
 export const autoIncluded = (driverId, lap, flags, range) =>
   !flags.get(driverId)?.get(lap) && inRange(lap, range);
 
+// Диапазон — жёсткий фильтр, сильнее ручного клика: круги вне него в таблице
+// не показываются, и оставить их в расчёте было бы нечем отменить.
 export function isIncluded(driverId, lap, flags, overrides, range) {
+  if (!inRange(lap, range)) return false;
   const k = key(driverId, lap);
   if (overrides.has(k)) return overrides.get(k);
-  return autoIncluded(driverId, lap, flags, range);
+  return !flags.get(driverId)?.get(lap);
 }
 
 // Секунды → «1:23.456». Округляем до миллисекунд до деления, иначе 119.9995

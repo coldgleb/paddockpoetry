@@ -148,11 +148,20 @@ assert.equal(isIncluded('NOR', 5, flags, new Map(), { from: 5, to: 12 }), true);
 assert.equal(isIncluded('NOR', 13, flags, new Map(), { from: 5, to: 20 }), false, 'PIT сильнее диапазона');
 // Диапазон, накрывающий пит-стоп, всё равно его исключает.
 assert.equal(inRange({ from: 12, to: 15 }).get('HAM').usedLaps, 3, 'из 12..15 у HAM выпадает OUT на 12');
-// Ручной клик перекрывает диапазон.
+// Диапазон сильнее ручного клика: вне него круга в таблице нет, и включённым
+// его оставить нельзя — иначе он тянул бы темп, а выключить его было бы негде.
 assert.equal(
   isIncluded('NOR', 2, flags, new Map([[key('NOR', 2), true]]), { from: 5, to: 12 }),
-  true, 'ручное включение сильнее диапазона',
+  false, 'диапазон сильнее ручного включения',
 );
+// Внутри диапазона ручной клик по-прежнему главнее флага.
+assert.equal(
+  isIncluded('NOR', 13, flags, new Map([[key('NOR', 13), true]]), { from: 5, to: 20 }),
+  true, 'внутри диапазона ручное включение снимает PIT',
+);
+// Сужение диапазона не должно оставлять «залипших» кругов в расчёте.
+const манульно = new Map([[key('NOR', 2), true], [key('NOR', 30), true]]);
+assert.equal(run({ overrides: манульно, range: { from: 5, to: 12 } }).get('NOR').usedLaps, 8);
 // Диапазон без единого круга не должен ронять расчёт.
 const пусто = inRange({ from: 1, to: 1 }); // круг 1 у всех помечен LAP1
 assert.equal(пусто.get('NOR').pace, null);

@@ -96,7 +96,10 @@ function renderTable() {
 
   html += '</thead><tbody>';
 
-  for (let lap = 1; lap <= race.lapCount; lap++) {
+  // Показываем только выбранные круги — остальных в таблице нет.
+  const from = range?.from ?? 1;
+  const to = range?.to ?? race.lapCount;
+  for (let lap = from; lap <= to; lap++) {
     html += `<tr><th class="lapno"><button class="lap" data-lap="${lap}" title="Переключить весь круг">${lap}</button></th>`;
     for (const id of selected) {
       const t = race.times.get(id)?.get(lap);
