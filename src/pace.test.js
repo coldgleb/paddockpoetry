@@ -4,6 +4,7 @@ import {
   parseLapTime, median, flagLaps, computePace, isIncluded, formatLapTime, key,
 } from './pace.js';
 import { teamColor, onColor } from './teams.js';
+import { expandStints, COMPOUNDS } from './tyres.js';
 
 // Референс-таблица пользователя, круги 1..21. Времена круга 1 и пит-кругов
 // проставлены правдоподобно: Jolpica всегда отдаёт время, даже на заезде в боксы.
@@ -206,6 +207,37 @@ for (const [id, r] of base) {
   }
   for (const [lap] of r.points) assert.equal(r.dropped.has(lap), false, 'выброс попал в points');
 }
+
+// --- составы резины --------------------------------------------------------
+// Реальные стинты NOR из Венгрии-2026: границы включительные, а один стинт
+// приходит с compound: null — OpenF1 так делает, и это не должно ломать разбор.
+const tyres = expandStints([
+  { driver_number: 1, lap_start: 1, lap_end: 17, compound: 'MEDIUM' },
+  { driver_number: 1, lap_start: 18, lap_end: 39, compound: 'HARD' },
+  { driver_number: 1, lap_start: 40, lap_end: 56, compound: null },
+  { driver_number: 1, lap_start: 57, lap_end: 70, compound: 'SOFT' },
+  { driver_number: 4, lap_start: 1, lap_end: 20, compound: '' },
+  { driver_number: 4, lap_start: 21, lap_end: 30, compound: 'ЧТО-ТО НОВОЕ' },
+]);
+const nor = tyres.get(1);
+assert.equal(nor.get(1), 'MEDIUM');
+assert.equal(nor.get(17), 'MEDIUM', 'верхняя граница стинта включительная');
+assert.equal(nor.get(18), 'HARD', 'следующий стинт начинается сразу за ней');
+assert.equal(nor.get(39), 'HARD');
+assert.equal(nor.get(40), undefined, 'стинт без состава пропускается, а не падает');
+assert.equal(nor.get(57), 'SOFT');
+assert.equal(nor.get(70), 'SOFT');
+assert.equal(nor.get(71), undefined);
+assert.equal(nor.size, 17 + 22 + 14, 'развёрнуты только круги с известным составом');
+// Пустая строка и незнакомый состав игнорируются целиком.
+assert.equal(tyres.has(4), false);
+assert.deepEqual(expandStints([]), new Map());
+// У каждого состава есть цвет и буква — иначе полоса в таблице будет пустой.
+for (const [name, c] of Object.entries(COMPOUNDS)) {
+  assert.match(c.color, /^#[0-9A-F]{6}$/i, `${name}: нужен hex`);
+  assert.equal(c.letter.length, 1, `${name}: буква одна`);
+}
+assert.equal(new Set(Object.values(COMPOUNDS).map((c) => c.letter)).size, 5, 'буквы не должны совпадать');
 
 // --- цвета команд ----------------------------------------------------------
 // Список constructorId собран из /{сезон}/constructors за 2018–2026. Если в

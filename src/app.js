@@ -2,6 +2,7 @@ import { fetchSeasonRaces, fetchRace } from './jolpica.js';
 import { flagLaps, computePace, isIncluded, autoIncluded, formatLapTime, key } from './pace.js';
 import { teamColor, onColor } from './teams.js';
 import { renderChart } from './chart.js';
+import { fetchTyres, COMPOUNDS } from './tyres.js';
 
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
 const DEFAULT_DRIVERS = 5; // сразу показываем топ-5, остальных пилотов добавляет пользователь
@@ -14,6 +15,7 @@ const state = {
   paceThreshold: 1.02,
   range: null, // { from, to } — круги с X по Y
   manualSC: new Map(), // круг → true/false, ручная пометка машины безопасности
+  tyres: null, // Map<номер машины, Map<круг, состав>> из OpenF1; null — нет данных
 };
 
 const $ = (id) => document.getElementById(id);
@@ -30,6 +32,7 @@ const els = {
   table: $('table'),
   chart: $('chart'),
   chartPanel: $('chart-panel'),
+  tyreNote: $('tyre-note'),
   range: $('range'),
   lapFrom: $('lap-from'),
   lapTo: $('lap-to'),
@@ -122,8 +125,22 @@ function renderTable() {
       // настоящим временем, иначе непонятно, что именно пошло в темп.
       const marked = !on && (flag === 'PIT' || flag === 'OUT' || flag === 'SC');
       const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : formatLapTime(t);
-      const hint = `${formatLapTime(t)}${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
-      html += `<td class="${cls}" data-driver="${id}" data-lap="${lap}" title="${hint}">${label}</td>`;
+
+      // Резина: полоса слева на каждом круге стинта, буква — только на первом.
+      // Полоса читается как сплошной блок стинта, буква даёт опознание без
+      // опоры на цвет (софт и хард различаются красным и белым).
+      const laps = state.tyres?.get(byId.get(id)?.number);
+      const comp = laps?.get(lap);
+      const c = comp && COMPOUNDS[comp];
+      const first = c && laps.get(lap - 1) !== comp;
+      const tyre = c
+        ? ` style="--comp:${c.color}"` +
+          (first ? ` data-comp="${c.letter}"` : '')
+        : '';
+
+      const hint = `${formatLapTime(t)}${c ? ' · ' + c.name : ''}` +
+        `${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
+      html += `<td class="${cls}${c ? ' has-tyre' : ''}" data-driver="${id}" data-lap="${lap}" title="${hint}"${tyre}>${label}</td>`;
     }
     html += '</tr>';
   }
@@ -288,6 +305,8 @@ async function load() {
   els.meta.hidden = true;
   els.range.hidden = true;
   els.chartPanel.hidden = true;
+  els.tyreNote.hidden = true;
+  state.tyres = null;
   try {
     const race = await fetchRace(els.season.value, els.race.value, setStatus);
     state.race = race;
@@ -302,6 +321,9 @@ async function load() {
     els.lapFrom.max = els.lapTo.max = race.lapCount;
     els.lapFrom.value = 1;
     els.lapTo.value = race.lapCount;
+    // Резина — из другого источника (OpenF1, с 2023 года). Тянем после
+    // основной таблицы: её отсутствие не должно задерживать или ломать показ.
+    state.tyres = null;
     renderMeta();
     renderDriverChips();
     els.legend.hidden = false;
@@ -309,6 +331,13 @@ async function load() {
     els.chartPanel.hidden = false;
     render();
     setStatus('');
+
+    const tyres = await fetchTyres(race.season, race.date);
+    if (state.race === race) {
+      state.tyres = tyres;
+      els.tyreNote.hidden = !!tyres;
+      renderTable();
+    }
   } catch (e) {
     setStatus(e.message, true);
   } finally {

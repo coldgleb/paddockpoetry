@@ -76,6 +76,7 @@ export async function fetchRace(year, round, onProgress) {
           name: `${r.Driver.givenName} ${r.Driver.familyName}`,
           team: r.Constructor?.name || '',
           constructorId: r.Constructor?.constructorId || '',
+          number: parseInt(r.number, 10), // стыковка с OpenF1 по номеру машины
           position: parseInt(r.position, 10) || 999,
           status: r.status || '',
         });
@@ -118,10 +119,12 @@ export async function fetchRace(year, round, onProgress) {
     times.set(id, new Map([...byLap].sort((a, b) => a[0] - b[0])));
   }
 
+  const meta = resultsRace?.RaceTable?.Races?.[0];
   const race = {
     season: year,
     round,
-    raceName: resultsRace?.RaceTable?.Races?.[0]?.raceName || `Round ${round}`,
+    date: meta?.date || '', // по ней ищем сессию в OpenF1 для составов резины
+    raceName: meta?.raceName || `Round ${round}`,
     drivers,
     lapCount,
     times,

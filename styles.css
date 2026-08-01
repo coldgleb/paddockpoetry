@@ -364,6 +364,34 @@ tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
 .cell.outlier { color: var(--text-2); opacity: .5; }
 .empty { color: #2b323f; }
 
+/* Резина: полоса цвета состава слева в ячейке — стинт читается сплошным
+   блоком. Буква ставится только на первом круге стинта, чтобы состав
+   опознавался без опоры на цвет и не зашумлял все 70 строк. */
+.cell.has-tyre { box-shadow: inset 3px 0 0 var(--comp); }
+.cell[data-comp]::before {
+  content: attr(data-comp);
+  float: left;
+  margin-left: -4px;
+  color: var(--comp);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+.cell.off[data-comp]::before, .cell.outlier[data-comp]::before { opacity: .5; }
+
+.legend .tyres { gap: 4px; }
+.legend i.tyre {
+  display: inline-block;
+  min-width: 15px;
+  padding: 0 1px;
+  border-left: 3px solid var(--comp);
+  color: var(--comp);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+.tyre-note { margin: -4px 0 14px; }
+
 .flag {
   font-size: 10.5px;
   font-weight: 700;
