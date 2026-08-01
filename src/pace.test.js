@@ -224,20 +224,27 @@ assert.equal(nor.get(1), 'MEDIUM');
 assert.equal(nor.get(17), 'MEDIUM', 'верхняя граница стинта включительная');
 assert.equal(nor.get(18), 'HARD', 'следующий стинт начинается сразу за ней');
 assert.equal(nor.get(39), 'HARD');
-assert.equal(nor.get(40), undefined, 'стинт без состава пропускается, а не падает');
 assert.equal(nor.get(57), 'SOFT');
 assert.equal(nor.get(70), 'SOFT');
 assert.equal(nor.get(71), undefined);
-assert.equal(nor.size, 17 + 22 + 14, 'развёрнуты только круги с известным составом');
-// Пустая строка и незнакомый состав игнорируются целиком.
-assert.equal(tyres.has(4), false);
+// Стинт, у которого OpenF1 потерял состав, показывается как «неизвестен»,
+// а не выпадает молча: пустая ячейка читалась бы как поломка вёрстки.
+assert.equal(nor.get(40), 'UNKNOWN');
+assert.equal(nor.get(56), 'UNKNOWN');
+assert.equal(nor.size, 70, 'развёрнуты все круги гонки');
+// Пустая строка и незнакомый состав тоже становятся «неизвестен».
+assert.equal(tyres.get(4).get(1), 'UNKNOWN');
+assert.equal(tyres.get(4).get(25), 'UNKNOWN');
 assert.deepEqual(expandStints([]), new Map());
+// Битые границы отбрасываются — на них цикл развёртки зациклился бы.
+assert.deepEqual(expandStints([{ driver_number: 9, lap_start: null, lap_end: 5, compound: 'SOFT' }]), new Map());
 // У каждого состава есть цвет и буква — иначе полоса в таблице будет пустой.
 for (const [name, c] of Object.entries(COMPOUNDS)) {
   assert.match(c.color, /^#[0-9A-F]{6}$/i, `${name}: нужен hex`);
   assert.equal(c.letter.length, 1, `${name}: буква одна`);
 }
-assert.equal(new Set(Object.values(COMPOUNDS).map((c) => c.letter)).size, 5, 'буквы не должны совпадать');
+const letters = Object.values(COMPOUNDS).map((c) => c.letter);
+assert.equal(new Set(letters).size, letters.length, 'буквы не должны совпадать');
 
 // --- цвета команд ----------------------------------------------------------
 // Список constructorId собран из /{сезон}/constructors за 2018–2026. Если в

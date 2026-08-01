@@ -12,6 +12,9 @@ export const COMPOUNDS = {
   HARD: { color: '#F0F0EC', letter: 'H', name: 'хард' },
   INTERMEDIATE: { color: '#43B02A', letter: 'I', name: 'интермедиат' },
   WET: { color: '#0067AD', letter: 'W', name: 'дождевая' },
+  // OpenF1 иногда теряет состав стинта целиком. Показываем это явно: пустая
+  // ячейка выглядит как поломка вёрстки, а «?» честно говорит «данных нет».
+  UNKNOWN: { color: '#7C8494', letter: '?', name: 'состав неизвестен' },
 };
 
 // Стинты → круг за кругом. Границы у OpenF1 включительные, а стинт
@@ -19,10 +22,10 @@ export const COMPOUNDS = {
 export function expandStints(stints) {
   const byDriver = new Map();
   for (const s of stints) {
-    const compound = s.compound && COMPOUNDS[s.compound] ? s.compound : null;
     const from = parseInt(s.lap_start, 10);
     const to = parseInt(s.lap_end, 10);
-    if (!compound || !Number.isFinite(from) || !Number.isFinite(to)) continue;
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    const compound = COMPOUNDS[s.compound] ? s.compound : 'UNKNOWN';
     if (!byDriver.has(s.driver_number)) byDriver.set(s.driver_number, new Map());
     const laps = byDriver.get(s.driver_number);
     for (let lap = from; lap <= to; lap++) laps.set(lap, compound);
