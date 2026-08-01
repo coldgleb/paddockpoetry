@@ -75,6 +75,7 @@ export async function fetchRace(year, round, onProgress) {
           code: r.Driver.code || r.Driver.familyName.slice(0, 3).toUpperCase(),
           name: `${r.Driver.givenName} ${r.Driver.familyName}`,
           team: r.Constructor?.name || '',
+          constructorId: r.Constructor?.constructorId || '',
           position: parseInt(r.position, 10) || 999,
           status: r.status || '',
         });

@@ -25,24 +25,29 @@
         <select id="race" disabled></select>
       </div>
       <div class="field">
+        <label>&nbsp;</label>
         <button id="load" class="primary">Загрузить</button>
       </div>
-      <div class="field">
-        <label for="threshold">Порог выброса <span id="threshold-value">107%</span></label>
+      <div class="field push">
+        <label for="threshold">Порог выброса · <span id="threshold-value">107%</span></label>
         <input id="threshold" type="range" min="100" max="115" step="1" value="107" />
       </div>
     </section>
 
     <div id="status" class="status" hidden></div>
-
+    <div id="meta" class="meta" hidden></div>
     <div id="drivers" class="drivers"></div>
 
-    <p class="hint">
-      Клик по времени круга — включить или выключить его в расчёте. Клик по номеру круга слева —
-      переключить весь ряд. Клик по коду пилота в шапке — убрать колонку.
-      По умолчанию выключены круг 1, заезды в боксы (PIT), выезды из боксов (OUT) и круги под SC/VSC.
-      Приглушённые времена без зачёркивания — выбросы, отсечённые порогом.
-    </p>
+    <div id="legend" class="legend" hidden>
+      <b>В расчёте</b>
+      <span><i>84.418</i> — учитывается</span>
+      <span><i class="sw-off">84.418</i> — выключен</span>
+      <span><i class="sw-outlier">84.418</i> — выброс, отсечён порогом</span>
+      <span><span class="flag">PIT</span> заезд в боксы</span>
+      <span><span class="flag">OUT</span> круг после пит-стопа</span>
+      <span><span class="flag f-SC">SC</span> машина безопасности</span>
+      <span>Клик по времени — вкл/выкл круг, по номеру круга — весь ряд, по коду пилота — убрать колонку.</span>
+    </div>
 
     <section id="table" class="table-wrap"></section>
   </main>

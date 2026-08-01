@@ -1,6 +1,7 @@
 // Self-check: node src/pace.test.js
 import assert from 'node:assert/strict';
 import { parseLapTime, median, flagLaps, computePace, isIncluded, key } from './pace.js';
+import { teamColor, onColor } from './teams.js';
 
 // Референс-таблица пользователя, круги 1..21. Времена круга 1 и пит-кругов
 // проставлены правдоподобно: Jolpica всегда отдаёт время, даже на заезде в боксы.
@@ -120,4 +121,25 @@ assert.equal(empty.get('NOR').best, false);
 assert.equal(run({ selected: [] }).size, 0);
 assert.equal(run({ selected: ['GHOST'] }).get('GHOST').pace, null, 'пилот без кругов не ломает расчёт');
 
-console.log('pace.js: все проверки прошли');
+// --- цвета команд ----------------------------------------------------------
+// Список constructorId собран из /{сезон}/constructors за 2018–2026. Если в
+// новом сезоне появится команда, которой тут нет, цвет молча станет серым —
+// а серым помечены выключенные круги. Пусть лучше падает тест.
+const CONSTRUCTORS = [
+  'alpine', 'aston_martin', 'audi', 'cadillac', 'ferrari', 'haas', 'mclaren',
+  'mercedes', 'rb', 'red_bull', 'williams', 'sauber', 'alfa', 'alphatauri',
+  'racing_point', 'renault', 'force_india', 'toro_rosso',
+];
+const fallback = teamColor('какой-то-новый-состав-2030');
+for (const id of CONSTRUCTORS) {
+  assert.match(teamColor(id), /^#[0-9A-F]{6}$/i, `${id}: цвет должен быть hex`);
+  assert.notEqual(teamColor(id), fallback, `${id} остался без своего цвета`);
+}
+// Цвета должны быть различимы: одинаковый цвет у двух команд сольёт колонки.
+const used = CONSTRUCTORS.map(teamColor);
+assert.equal(new Set(used).size, used.length, 'два состава получили один цвет');
+// Текст поверх плашки выбирается по яркости, иначе чип нечитаем.
+assert.equal(onColor('#E9EEF4'), '#10131a', 'на светлой плашке — тёмный текст');
+assert.equal(onColor('#3671C6'), '#ffffff', 'на тёмной плашке — светлый текст');
+
+console.log('pace.js + teams.js: все проверки прошли');

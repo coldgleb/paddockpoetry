@@ -1,5 +1,6 @@
 import { fetchSeasonRaces, fetchRace } from './jolpica.js';
 import { flagLaps, computePace, isIncluded, key } from './pace.js';
+import { teamColor, onColor } from './teams.js';
 
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
 const DEFAULT_DRIVERS = 5; // сразу показываем топ-5, остальных пилотов добавляет пользователь
@@ -20,7 +21,9 @@ const els = {
   threshold: $('threshold'),
   thresholdValue: $('threshold-value'),
   status: $('status'),
+  meta: $('meta'),
   drivers: $('drivers'),
+  legend: $('legend'),
   table: $('table'),
 };
 
@@ -30,66 +33,115 @@ function setStatus(msg, isError = false) {
   els.status.classList.toggle('error', isError);
 }
 
+const fmt = (v) => (v == null ? '—' : v.toFixed(3));
+
 // --- расчёт и рендер -------------------------------------------------------
 
 function render() {
   const { race, flags, selected, overrides, paceThreshold } = state;
   if (!race) return;
 
-  const rows = computePace(race, flags, { selected, overrides, paceThreshold });
-
   if (!selected.length) {
-    els.table.innerHTML = '<p class="hint">Выбери хотя бы одного пилота.</p>';
+    els.table.innerHTML = '<p class="empty-state">Выбери хотя бы одного пилота выше.</p>';
     return;
   }
 
-  const head = (label, cell) =>
-    `<tr class="meta"><th>${label}</th>${selected.map(cell).join('')}</tr>`;
+  const rows = computePace(race, flags, { selected, overrides, paceThreshold });
   const byId = new Map(race.drivers.map((d) => [d.driverId, d]));
-  const fmt = (v) => (v == null ? '—' : v.toFixed(3));
+  const color = (id) => teamColor(byId.get(id)?.constructorId);
+  // Полоска отставания — относительно самого большого разрыва на экране,
+  // иначе при близких темпах все полоски вырождаются в точку.
+  const maxDiff = Math.max(...[...rows.values()].map((r) => r.diff || 0), 0.001);
 
-  let html = '<table><thead>';
-  html += head(
-    'Driver',
-    (id) => `<th><button class="drop" data-driver="${id}" title="Убрать пилота">${byId.get(id)?.code || id}</button></th>`,
-  );
-  html += head('Team', (id) => `<td class="team">${byId.get(id)?.team || ''}</td>`);
-  html += head('Pace', (id) => `<td class="pace">${fmt(rows.get(id).pace)}</td>`);
-  html += head('Diff', (id) => {
-    const r = rows.get(id);
-    return `<td class="diff${r.best ? ' best' : ''}">${r.best ? 'BEST' : fmt(r.diff)}</td>`;
-  });
+  // Ширину столбца кругов задаём через <col>; цвет команды туда не вешаем —
+  // на колонки наследуются только background/border/width, но не переменные.
+  let html = '<table><colgroup><col class="lapcol" /></colgroup><thead>';
+
+  html += `<tr class="r-driver"><th class="corner">Пилот</th>${selected
+    .map((id) => {
+      const c = color(id);
+      const d = byId.get(id);
+      return `<th style="--team:${c}"><button class="drop" data-driver="${id}" title="${d?.name || id} · убрать колонку">${d?.code || id}</button></th>`;
+    })
+    .join('')}</tr>`;
+
+  html += `<tr class="r-team"><th class="corner">Команда</th>${selected
+    .map((id) => `<td>${byId.get(id)?.team || ''}</td>`)
+    .join('')}</tr>`;
+
+  html += `<tr class="r-pace"><th class="corner">Темп</th>${selected
+    .map((id) => `<td>${fmt(rows.get(id).pace)}</td>`)
+    .join('')}</tr>`;
+
+  html += `<tr class="r-diff"><th class="corner">Отставание</th>${selected
+    .map((id) => {
+      const r = rows.get(id);
+      if (r.best) return '<td class="best"><span class="tag-best">BEST</span></td>';
+      const w = r.diff == null ? 0 : Math.round((r.diff / maxDiff) * 100);
+      return `<td style="--team:${color(id)}"><span class="gap">${fmt(r.diff)}</span><span class="gap-bar" style="width:${w}%"></span></td>`;
+    })
+    .join('')}</tr>`;
+
   html += '</thead><tbody>';
 
   for (let lap = 1; lap <= race.lapCount; lap++) {
-    html += `<tr><th><button class="lap" data-lap="${lap}" title="Переключить весь круг">${lap}</button></th>`;
+    html += `<tr><th class="lapno"><button class="lap" data-lap="${lap}" title="Переключить весь круг">${lap}</button></th>`;
     for (const id of selected) {
       const t = race.times.get(id)?.get(lap);
       if (t == null) {
-        html += '<td class="empty">-</td>';
+        html += '<td class="empty">·</td>';
         continue;
       }
       const flag = flags.get(id)?.get(lap);
       const on = isIncluded(id, lap, flags, overrides);
       const outlier = rows.get(id).dropped.has(lap);
-      const cls = ['cell', on ? 'on' : 'off', outlier ? 'outlier' : ''].filter(Boolean).join(' ');
-      // Пит-круги показываем меткой, как в референсной таблице; при ручном
-      // включении — настоящим временем, иначе непонятно, что пошло в темп.
-      const label = !on && (flag === 'PIT' || flag === 'OUT' || flag === 'SC') ? flag : t.toFixed(3);
-      html += `<td class="${cls}" data-driver="${id}" data-lap="${lap}" title="${t.toFixed(3)}${flag ? ' · ' + flag : ''}">${label}</td>`;
+      const cls = ['cell', on ? (outlier ? 'outlier' : 'on') : 'off'].join(' ');
+      // Пит-круги показываем меткой, как на таймингах; при ручном включении —
+      // настоящим временем, иначе непонятно, что именно пошло в темп.
+      const marked = !on && (flag === 'PIT' || flag === 'OUT' || flag === 'SC');
+      const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : t.toFixed(3);
+      const hint = `${t.toFixed(3)}${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
+      html += `<td class="${cls}" data-driver="${id}" data-lap="${lap}" title="${hint}">${label}</td>`;
     }
     html += '</tr>';
   }
   els.table.innerHTML = html + '</tbody></table>';
+  stickHeader();
+}
+
+// Каждая строка шапки липнет на сумме высот строк над ней. Меряем по факту:
+// height у ячеек таблицы — не гарантия, и фиксированные смещения разъезжались.
+// Высоты дробные, поэтому берём getBoundingClientRect, а не offsetHeight:
+// округление копится от строки к строке и оставляет щели, сквозь которые
+// просвечивают круги.
+function stickHeader() {
+  let top = 0;
+  for (const tr of els.table.querySelectorAll('thead tr')) {
+    for (const cell of tr.children) cell.style.top = `${top}px`;
+    top += tr.getBoundingClientRect().height;
+  }
 }
 
 function renderDriverChips() {
   els.drivers.innerHTML = state.race.drivers
-    .map(
-      (d) =>
-        `<button class="chip${state.selected.includes(d.driverId) ? ' active' : ''}" data-driver="${d.driverId}" title="${d.name} · ${d.team}">${d.code}</button>`,
-    )
+    .map((d) => {
+      const c = teamColor(d.constructorId);
+      const active = state.selected.includes(d.driverId);
+      const style = active
+        ? `background:${c};border-color:${c};color:${onColor(c)}`
+        : `--team:${c}`;
+      return `<button class="chip${active ? ' active' : ''}" style="${style}" data-driver="${d.driverId}" title="${d.name} · ${d.team}">${d.code}</button>`;
+    })
     .join('');
+}
+
+function renderMeta() {
+  const r = state.race;
+  els.meta.hidden = !r;
+  if (!r) return;
+  els.meta.innerHTML =
+    `<strong>${r.raceName}</strong><span>${r.season}, этап ${r.round}</span>` +
+    `<span>${r.lapCount} кругов</span><span>${r.times.size} пилотов</span>`;
 }
 
 // --- переключение кругов ---------------------------------------------------
@@ -114,6 +166,9 @@ function toggleDriver(driverId) {
   const i = state.selected.indexOf(driverId);
   if (i >= 0) state.selected.splice(i, 1);
   else state.selected.push(driverId);
+  // Колонки держим в порядке финиша, иначе добавленный пилот прыгает в конец.
+  const order = state.race.drivers.map((d) => d.driverId);
+  state.selected.sort((a, b) => order.indexOf(a) - order.indexOf(b));
 }
 
 // --- загрузка --------------------------------------------------------------
@@ -141,6 +196,8 @@ async function load() {
   els.load.disabled = true;
   els.table.innerHTML = '';
   els.drivers.innerHTML = '';
+  els.legend.hidden = true;
+  els.meta.hidden = true;
   try {
     const race = await fetchRace(els.season.value, els.race.value, setStatus);
     state.race = race;
@@ -150,7 +207,9 @@ async function load() {
       .filter((d) => race.times.has(d.driverId))
       .slice(0, DEFAULT_DRIVERS)
       .map((d) => d.driverId);
+    renderMeta();
     renderDriverChips();
+    els.legend.hidden = false;
     render();
     setStatus('');
   } catch (e) {
@@ -181,7 +240,7 @@ els.drivers.addEventListener('click', (e) => {
 });
 
 // ponytail: полный ререндер таблицы на каждый клик; ~70×20 ячеек — незаметно.
-// Начнёт тормозить — обновлять точечно только шапку Pace/Diff.
+// Начнёт тормозить — обновлять точечно только шапку с темпом и отставанием.
 els.table.addEventListener('click', (e) => {
   const lapBtn = e.target.closest('.lap');
   if (lapBtn) return toggleRow(+lapBtn.dataset.lap), render();

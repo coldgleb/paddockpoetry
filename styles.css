@@ -1,11 +1,15 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --line: #262b36;
-  --text: #e6e8ee;
-  --muted: #8b93a5;
+  --bg: #0b0d12;
+  --panel: #14171f;
+  --panel-2: #1b1f29;
+  --line: #242a36;
+  --line-soft: #1c212b;
+  --text: #eef1f6;
+  --text-2: #aab3c4;
+  --muted: #6b7488;
   --accent: #e8402a;
   --best: #35c06a;
+  --lapcol: 52px;
 }
 
 * { box-sizing: border-box; }
@@ -14,87 +18,256 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-.wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 24px; }
 
-.site-header { border-bottom: 1px solid var(--line); padding: 24px 0; }
-.site-header h1 { margin: 0 0 4px; font-size: 24px; }
-.tagline { margin: 0; color: var(--muted); }
+/* ---------- шапка ---------- */
+
+.site-header {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #141821, var(--bg));
+  padding: 26px 0 22px;
+}
+.site-header h1 { margin: 0 0 5px; font-size: 25px; letter-spacing: -0.02em; }
+.tagline { margin: 0; color: var(--text-2); font-size: 14px; }
+
+/* ---------- панель управления ---------- */
 
 .controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 14px 18px;
   align-items: flex-end;
-  padding: 20px 0;
-}
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field.wide { flex: 1; min-width: 240px; }
-label { color: var(--muted); font-size: 13px; }
-
-select, input[type="range"], button {
-  font: inherit;
-  color: var(--text);
+  padding: 18px;
+  margin: 20px 0 16px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: 10px;
 }
-select:disabled { opacity: .5; }
-button { cursor: pointer; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-button.primary:disabled { opacity: .5; cursor: default; }
-input[type="range"] { padding: 0; accent-color: var(--accent); }
-
-.status { padding: 10px 12px; background: var(--panel); border-radius: 6px; margin-bottom: 12px; }
-.status.error { background: #3a1512; color: #ffb4a8; }
-
-.drivers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.chip {
-  padding: 5px 10px;
-  font-size: 13px;
-  font-weight: 600;
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field.wide { flex: 1; min-width: 240px; }
+.field.push { margin-left: auto; }
+label {
   color: var(--muted);
-  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
-.chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-.hint { color: var(--muted); font-size: 13px; max-width: 900px; }
+select, button, input[type="range"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 11px;
+}
+select { min-width: 110px; cursor: pointer; }
+select:disabled { opacity: .45; cursor: default; }
+button { cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
 
-.table-wrap { overflow-x: auto; padding-bottom: 40px; }
-table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 650;
+  padding-inline: 20px;
+}
+button.primary:hover:not(:disabled) { background: #f4553f; border-color: #f4553f; }
+button.primary:disabled { opacity: .5; cursor: default; }
+
+input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); border: none; background: none; }
+#threshold-value { color: var(--text); font-variant-numeric: tabular-nums; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- статус и мета ---------- */
+
+.status {
+  padding: 11px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 14px;
+  color: var(--text-2);
+}
+.status.error { background: #2c1210; border-color: #5b241e; color: #ffb4a8; }
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.meta strong { color: var(--text); font-size: 17px; font-weight: 650; }
+
+/* ---------- пилоты ---------- */
+
+.drivers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.chip {
+  padding: 6px 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  background: var(--panel);
+  border-radius: 999px;
+  position: relative;
+  padding-left: 20px;
+}
+/* Точка цвета команды — принадлежность видна и у невыбранных. */
+.chip::before {
+  content: "";
+  position: absolute;
+  left: 9px; top: 50%;
+  width: 6px; height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--team, var(--muted));
+  opacity: .85;
+}
+.chip:hover { color: var(--text); border-color: var(--muted); }
+.chip.active { padding-left: 11px; }
+.chip.active::before { display: none; }
+
+/* ---------- легенда ---------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text-2);
+  font-size: 12.5px;
+}
+.legend b { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; font-size: 11px; }
+.legend i { font-style: normal; font-variant-numeric: tabular-nums; }
+.legend .sw-off { color: var(--muted); text-decoration: line-through; }
+.legend .sw-outlier { color: var(--muted); opacity: .65; }
+
+/* ---------- таблица ---------- */
+
+.table-wrap {
+  max-height: 74vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.empty-state { margin: 0; padding: 28px; color: var(--muted); }
+
+table { border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; width: max-content; }
+col.lapcol { width: var(--lapcol); }
+
 th, td {
-  padding: 4px 10px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 12px;
   text-align: right;
   white-space: nowrap;
+  border-bottom: 1px solid var(--line-soft);
 }
-thead th, thead td { border-bottom: 1px solid var(--line); background: var(--panel); }
-tr.meta th { text-align: left; color: var(--muted); font-weight: 500; font-size: 13px; }
-tbody th { text-align: left; padding: 0; }
 
-.team { color: var(--muted); font-size: 13px; }
-.pace { font-weight: 600; }
-.diff.best { color: var(--best); font-weight: 700; }
+/* Шапка липнет к верху. Смещение каждой строки проставляет JS по её реальной
+   высоте: заданные тут height ячейки таблицы трактуют как пожелание, и
+   захардкоженные top разъезжались с фактическими строками. */
+thead th, thead td { position: sticky; z-index: 2; background: var(--panel-2); }
+tr.r-driver th, tr.r-driver td { padding-top: 12px; }
+tr.r-diff th, tr.r-diff td { border-bottom: 1px solid var(--line); }
 
-button.drop, button.lap {
-  background: none;
-  border: none;
-  padding: 4px 10px;
-  color: inherit;
-  font: inherit;
+/* Столбец кругов липнет к левому краю. */
+th.corner, th.lapno { position: sticky; left: 0; background: var(--panel-2); text-align: left; }
+th.corner { z-index: 3; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+th.lapno { z-index: 1; padding: 0; }
+
+/* Код пилота: цвет команды + полоска под ним, чтобы принадлежность
+   читалась и без цвета (важно при дальтонизме). */
+tr.r-driver th { border-bottom: 3px solid var(--team); vertical-align: bottom; padding-bottom: 5px; }
+tr.r-driver th.corner { border-bottom: 3px solid var(--line); }
+button.drop {
+  background: none; border: none; padding: 0;
+  color: var(--team, var(--text));
+  font: inherit; font-weight: 750; font-size: 15px; letter-spacing: .04em;
+}
+button.drop:hover { opacity: .65; }
+
+tr.r-team td { color: var(--muted); font-size: 11.5px; font-weight: 500; }
+tr.r-pace td { color: var(--text); font-weight: 700; font-size: 16px; }
+
+/* Отставание: число плюс полоска длиной пропорционально разрыву.
+   position тут не трогаем: ячейка уже sticky, а relative перебивал его
+   по специфичности — строка переставала липнуть и её затирали круги. */
+tr.r-diff td { color: var(--text-2); font-size: 13.5px; padding-bottom: 6px; }
+.gap-bar {
+  position: absolute;
+  right: 12px; bottom: 4px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--team);
+  opacity: .8;
+}
+tr.r-diff td.best { color: var(--best); }
+.tag-best {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(53, 192, 106, .14);
+  color: var(--best);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .06em;
+}
+
+/* ---------- клетки кругов ---------- */
+
+button.lap {
+  background: none; border: none;
+  width: 100%; height: 100%;
+  padding: 5px 12px;
+  text-align: left;
+  color: var(--muted);
+  font: inherit; font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+button.lap:hover { color: var(--accent); }
+
+tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
+
+.cell { cursor: pointer; padding-block: 5px; font-size: 13.5px; }
+.cell:hover { background: #222836 !important; color: #fff; }
+.cell.on { color: var(--text); }
+.cell.off { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+.cell.outlier { color: var(--text-2); opacity: .5; }
+.empty { color: #2b323f; }
+
+.flag {
+  font-size: 10.5px;
   font-weight: 700;
+  letter-spacing: .06em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #232936;
+  color: #8b95aa;
 }
-button.lap { color: var(--muted); font-weight: 500; font-size: 13px; width: 100%; text-align: left; }
-button.drop:hover, button.lap:hover { color: var(--accent); }
+.f-SC { background: #3a3115; color: #d8b451; }
 
-.cell { cursor: pointer; }
-.cell:hover { background: var(--panel); }
-.cell.off { color: var(--muted); text-decoration: line-through; }
-.cell.outlier { color: var(--muted); text-decoration: none; opacity: .6; }
-.empty { color: var(--line); }
+/* ---------- подвал ---------- */
 
-.site-footer { border-top: 1px solid var(--line); padding: 20px 0; color: var(--muted); font-size: 13px; }
-.site-footer a { color: var(--muted); }
+.site-footer { border-top: 1px solid var(--line); margin-top: 32px; padding: 18px 0 28px; color: var(--muted); font-size: 12.5px; }
+.site-footer a { color: var(--text-2); }
+
+@media (max-width: 700px) {
+  .wrap { padding: 0 14px; }
+  .field.push { margin-left: 0; }
+  .table-wrap { max-height: 68vh; }
+}
