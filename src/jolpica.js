@@ -10,15 +10,32 @@ const BURST = 2; // параллельных запросов — на трёх 
 const RETRIES = 5;
 
 const cache = new Map(); // `${year}:${round}` → гонка
+const seasonCache = new Map(); // год → список гонок
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Кому рассказывать про ожидание. Ставится на время загрузки: 429 приходит
+// молча, и без этого страница просто «висит» до пятнадцати секунд.
+let notify = null;
+
 async function getJSON(url, attempt = 0) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  // Лимит запросов Jolpica отдаётся без Retry-After и без счётчиков, так что
-  // ждём сами, удваивая паузу.
-  if (res.status === 429 && attempt < RETRIES) {
+  let res;
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' } });
+  } catch (e) {
+    // Обрыв сети — тоже повод повторить, а не падать с первого раза.
+    if (attempt >= RETRIES) throw new Error('Jolpica недоступна: ' + e.message);
     await sleep(500 * 2 ** attempt);
+    return getJSON(url, attempt + 1);
+  }
+  // Лимит запросов Jolpica отдаётся без Retry-After и без счётчиков, так что
+  // ждём сами, удваивая паузу. Порог — около шести запросов подряд, поэтому
+  // после загрузки гонки (полтора десятка страниц) следующий запрос вполне
+  // может в него попасть.
+  if (res.status === 429 && attempt < RETRIES) {
+    const wait = 500 * 2 ** attempt;
+    notify?.(`Jolpica ограничивает частоту запросов — жду ${Math.round(wait / 1000) || 1} с…`);
+    await sleep(wait);
     return getJSON(url, attempt + 1);
   }
   if (!res.ok) throw new Error(`Jolpica ответил ${res.status}`);
@@ -51,22 +68,31 @@ async function paged(path, onPage, onProgress) {
   return first;
 }
 
-export async function fetchSeasonRaces(year) {
-  const mr = await getJSON(`${BASE}/${year}/races/?limit=${PAGE}`);
-  const today = new Date().toISOString().slice(0, 10);
-  return (mr.RaceTable?.Races || [])
-    .filter((r) => r.date <= today) // будущие этапы без покруговки
-    .map((r) => ({
-      round: parseInt(r.round, 10),
-      name: r.raceName,
-      date: r.date,
-    }));
+export async function fetchSeasonRaces(year, onProgress) {
+  if (seasonCache.has(year)) return seasonCache.get(year);
+  notify = onProgress;
+  try {
+    const mr = await getJSON(`${BASE}/${year}/races/?limit=${PAGE}`);
+    const today = new Date().toISOString().slice(0, 10);
+    const races = (mr.RaceTable?.Races || [])
+      .filter((r) => r.date <= today) // будущие этапы без покруговки
+      .map((r) => ({
+        round: parseInt(r.round, 10),
+        name: r.raceName,
+        date: r.date,
+      }));
+    seasonCache.set(year, races); // лишний раз в лимит не упираемся
+    return races;
+  } finally {
+    notify = null;
+  }
 }
 
 export async function fetchRace(year, round, onProgress) {
   const cacheKey = `${year}:${round}`;
   if (cache.has(cacheKey)) return cache.get(cacheKey);
   const say = (m) => onProgress && onProgress(m);
+  notify = say; // про ожидание из-за лимита тоже рассказываем
 
   say('Загружаю состав и пит-стопы…');
   // Пилотов опознаём номером машины: это единственный ключ, общий с OpenF1,
@@ -155,6 +181,7 @@ export async function fetchRace(year, round, onProgress) {
     sectorsFor: new Set(), // у кого секторы уже долиты
   };
   cache.set(cacheKey, race);
+  notify = null;
   say('');
   return race;
 }

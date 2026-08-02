@@ -534,8 +534,11 @@ async function loadSeason() {
   const year = els.season.value;
   els.race.disabled = true;
   els.race.innerHTML = '<option>загружаю…</option>';
+  setStatus('Загружаю список гонок…');
   try {
-    const races = await fetchSeasonRaces(year);
+    // Про ожидание из-за лимита запросов рассказываем в статусе: 429 приходит
+    // молча, и без этого страница просто «висела» бы до пятнадцати секунд.
+    const races = await fetchSeasonRaces(year, setStatus);
     if (!races.length) throw new Error('В этом сезоне ещё нет прошедших гонок');
     els.race.innerHTML = races
       .map((r) => `<option value="${r.round}">${r.round}. ${r.name}</option>`)
@@ -543,9 +546,10 @@ async function loadSeason() {
     els.race.disabled = false;
     // Последняя прошедшая гонка — самый частый интерес.
     els.race.value = races[races.length - 1].round;
+    setStatus('');
   } catch (e) {
     els.race.innerHTML = '<option>—</option>';
-    setStatus(e.message, true);
+    setStatus(`${e.message}. Нажми «Загрузить», чтобы попробовать снова.`, true);
   }
 }
 
@@ -572,6 +576,11 @@ async function load() {
   els.openf1Note.hidden = true;
   state.loadingSectors.clear();
   try {
+    // Список гонок мог не догрузиться — тогда «Загрузить» сначала повторяет его.
+    if (els.race.disabled || !Number(els.race.value)) {
+      await loadSeason();
+      if (els.race.disabled) return;
+    }
     const year = Number(els.season.value);
     const race = await fetchRace(year, Number(els.race.value), setStatus);
     state.race = race;
