@@ -402,6 +402,44 @@ for (const [name, c] of Object.entries(COMPOUNDS)) {
 const letters = Object.values(COMPOUNDS).map((c) => c.letter);
 assert.equal(new Set(letters).size, letters.length, 'буквы не должны совпадать');
 
+// --- клик по значку SC работает и после ручного включения круга -------------
+// Сценарий с руками: круг под VSC → включили его вручную → жмём значок VSC.
+// Пока ручное включение висит, пометка не влияет ни на расчёт, ни на вид, и
+// значок кажется мёртвым. Поэтому переключение пометки его снимает.
+{
+  const manual = new Map();
+  const overrides = new Map();
+  const setSC = (id, lap, value) => {
+    const auto = scRace.sc.get(lap) || null;
+    if ((value || null) === auto) manual.delete(key(id, lap));
+    else manual.set(key(id, lap), value);
+  };
+  const flagsNow = () => flagLaps(scRace, { manualSC: manual });
+  const shown = (id, lap) => isIncluded(id, lap, flagsNow(), overrides);
+  const kindNow = (id, lap) => flagsNow().scKind(id, lap);
+  // Как в интерфейсе: переключили пометку — сняли ручное включение.
+  const clickSC = (id, lap) => {
+    const kind = kindNow(id, lap);
+    setSC(id, lap, kind ? false : (scRace.sc.get(lap) || 'SC'));
+    overrides.delete(key(id, lap));
+  };
+
+  assert.equal(kindNow('A', 3), 'VSC', 'круг 3 под виртуальной');
+  assert.equal(shown('A', 3), false, 'и потому не участвует');
+
+  overrides.set(key('A', 3), true); // ручное включение — круг стал отображаемым
+  assert.equal(shown('A', 3), true);
+
+  clickSC('A', 3); // снимаем пометку
+  assert.equal(kindNow('A', 3), null, 'пометка ушла');
+  assert.equal(shown('A', 3), true, 'круг остался в расчёте — теперь законно');
+
+  clickSC('A', 3); // возвращаем
+  assert.equal(kindNow('A', 3), 'VSC', 'вернулась именно VSC');
+  assert.equal(shown('A', 3), false, 'и снова исключает круг — клик виден');
+  assert.equal(overrides.size, 0, 'ручное включение не осталось висеть');
+}
+
 // --- порядок колонок -------------------------------------------------------
 // Повторяем сортировку из applyOrder: по месту в гонке, по темпу, вручную.
 {

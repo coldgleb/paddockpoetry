@@ -7,7 +7,7 @@ export const COMPOUNDS = {
   SOFT: { color: '#DA291C', letter: 'S', name: 'софт' },
   MEDIUM: { color: '#FFD12E', letter: 'M', name: 'медиум' },
   HARD: { color: '#F0F0EC', letter: 'H', name: 'хард' },
-  INTERMEDIATE: { color: '#43B02A', letter: 'I', name: 'интермедиат' },
+  INTERMEDIATE: { color: '#43B02A', letter: 'I', name: 'промежуточные' },
   WET: { color: '#0067AD', letter: 'W', name: 'дождевая' },
   // OpenF1 иногда теряет состав стинта целиком. Показываем это явно: пустая
   // ячейка выглядит как поломка вёрстки, а «?» честно говорит «данных нет».

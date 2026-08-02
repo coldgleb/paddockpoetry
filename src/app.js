@@ -372,9 +372,17 @@ function setManualSC(driverId, lap, value) {
   else state.manualSC.set(k, value);
 }
 
+// Ручное включение круга сильнее пометки, поэтому пока оно висит, SC не
+// влияет ни на расчёт, ни на вид ячейки — клик по значку выглядит бесполезным.
+// Снимаем его: пометка снова решает, идёт круг в темп или нет.
+function clearInclusion(driverId, lap) {
+  state.overrides.delete(key(driverId, lap));
+}
+
 function toggleCellSC(driverId, lap) {
   const kind = state.flags.scKind(driverId, lap);
   setManualSC(driverId, lap, kind ? false : scToSet(lap));
+  clearInclusion(driverId, lap);
   refreshFlags();
   render();
 }
@@ -384,6 +392,7 @@ function toggleRowSC(lap) {
   const anyOff = state.selected.some((id) => !state.flags.scKind(id, lap));
   for (const id of state.selected) {
     setManualSC(id, lap, anyOff ? scToSet(lap) : false);
+    clearInclusion(id, lap);
   }
   refreshFlags();
   render();
