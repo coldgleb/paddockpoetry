@@ -21,6 +21,7 @@ const state = {
   manualTyres: [], // [{ driverId, from, to, compound }] — поверх данных OpenF1
   metric: 'lap', // что сравниваем: круг, сектор или сумма секторов
   order: 'position', // порядок колонок: 'position' | 'pace' | 'manual'
+  showTyreAge: true, // номер круга на комплекте в ячейках
   source: 'jolpica', // откуда покруговка: 'jolpica' (быстро) | 'openf1' (секторы)
   sessionKey: null, // сессия OpenF1 для этой гонки, если нашлась
   loadingSectors: new Set(), // по кому секторы едут прямо сейчас
@@ -45,6 +46,8 @@ const els = {
   lapReset: $('lap-reset'),
   metric: $('metric'),
   order: $('order'),
+  tableControls: $('table-controls'),
+  showTyreAge: $('show-tyre-age'),
   tyrePanel: $('tyre-panel'),
   tyreDriver: $('tyre-driver'),
   tyreFrom: $('tyre-from'),
@@ -198,9 +201,11 @@ function renderTable(rows) {
       const tyreAttr = c ? ` style="--comp:${c.color}"` : '';
       // Буква состава на первом круге стинта, номер круга на комплекте — на
       // каждом. Оба в одном элементе, чтобы номер не терялся там, где буква.
-      const age = c
-        ? `<span class="tyre-mark">${first ? `<b>${c.letter}</b>` : ''}${t.age}</span>`
+      // Номера можно выключить: полоса и буква всё равно опознают состав.
+      const mark = c
+        ? (first ? `<b>${c.letter}</b>` : '') + (state.showTyreAge ? t.age : '')
         : '';
+      const age = mark ? `<span class="tyre-mark">${mark}</span>` : '';
 
       const hint =
         `${formatLapTime(v)}` +
@@ -553,6 +558,7 @@ async function load() {
   els.meta.hidden = true;
   els.range.hidden = true;
   els.chartPanel.hidden = true;
+  els.tableControls.hidden = true;
   els.tyrePanel.hidden = true;
   els.openf1Note.hidden = true;
   state.loadingSectors.clear();
@@ -575,6 +581,7 @@ async function load() {
     els.legend.hidden = false;
     els.range.hidden = false;
     els.chartPanel.hidden = false;
+    els.tableControls.hidden = false;
     render();
 
     // Резина и судейская — из OpenF1, один быстрый запрос на каждое. Таблица
@@ -631,6 +638,11 @@ els.metric.addEventListener('change', () => {
 
 els.order.addEventListener('change', () => {
   setOrder(els.order.value);
+  render();
+});
+
+els.showTyreAge.addEventListener('change', () => {
+  state.showTyreAge = els.showTyreAge.checked;
   render();
 });
 

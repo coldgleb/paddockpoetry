@@ -31,14 +31,6 @@
         <label for="metric">Сравнивать</label>
         <select id="metric"></select>
       </div>
-      <div class="field">
-        <label for="order">Порядок колонок</label>
-        <select id="order">
-          <option value="position">по месту в гонке</option>
-          <option value="pace">по темпу</option>
-          <option value="manual">вручную</option>
-        </select>
-      </div>
       <div class="field push">
         <label for="source">Источник покруговки</label>
         <select id="source">
@@ -110,6 +102,19 @@
       <h2>Темп по кругам</h2>
       <div id="chart" class="chart"></div>
     </section>
+
+    <div id="table-controls" class="table-controls" hidden>
+      <label for="order">Порядок колонок</label>
+      <select id="order">
+        <option value="position">по месту в гонке</option>
+        <option value="pace">по темпу</option>
+        <option value="manual">вручную</option>
+      </select>
+      <label class="check">
+        <input id="show-tyre-age" type="checkbox" checked />
+        Круги на комплекте
+      </label>
+    </div>
 
     <section id="table" class="table-wrap"></section>
   </main>

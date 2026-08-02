@@ -260,6 +260,28 @@ button.ghost:hover { color: var(--text); border-color: var(--muted); }
 .chart .tip i { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .chart .tip em { margin-left: auto; font-style: normal; font-weight: 600; }
 
+/* ---------- полоса над таблицей ---------- */
+
+/* Настройки самой таблицы держим рядом с ней, а не в общем фильтре: они
+   меняют вид того, что прямо под ними. */
+.table-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-bottom: 10px;
+}
+.table-controls label {
+  text-transform: none; letter-spacing: 0;
+  font-size: 13.5px; font-weight: 500; color: var(--text-2);
+}
+.table-controls select { padding: 7px 9px; font-size: 14px; }
+.table-controls .check {
+  display: inline-flex; align-items: center; gap: 7px;
+  cursor: pointer; user-select: none;
+}
+.table-controls .check input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+
 /* ---------- таблица ---------- */
 
 /* Скролл только один — страничный. Своего у таблицы нет, поэтому шапка
