@@ -1,17 +1,19 @@
-// Единственный источник данных — OpenF1. Покрытие с 2023 года.
-// Заменил Jolpica: секторы всё равно есть только здесь, а пит-стопы,
-// восстановленные из is_pit_out_lap, сошлись с Jolpica до последнего заезда.
+// OpenF1 — дополнение к Jolpica: секторы, составы резины и судейская.
+// Целые круги отсюда не берём: замерено, что OpenF1 теряет записи (в
+// Венгрии-2026 нет 40-го круга у четырёх пилотов) и отдаёт их в 10–20 раз
+// медленнее. Покрытие — с 2023 года.
 import { expandStints } from './tyres.js';
 
 const BASE = 'https://api.openf1.org/v1';
-// Отдельные запросы к OpenF1 иногда застревают на десятки секунд, а повтор
-// проходит быстро. Поэтому короткий таймаут и повторы, а не долгое ожидание.
+// Отдельные запросы иногда застревают на десятки секунд, а повтор проходит
+// быстро. Поэтому короткий таймаут и повторы, а не долгое ожидание.
 const TIMEOUT = 15000;
 const RETRIES = 3;
-const BURST = 4; // пилотов за раз
-const FIRST = 3; // сколько пилотов ждём перед первой отрисовкой
+export const FIRST_YEAR = 2023;
 
-const cache = new Map(); // sessionKey → гонка
+const sessionCache = new Map(); // `${year}:${date}` → session_key | null
+const extrasCache = new Map(); // session_key → { sc, tyres }
+const sectorCache = new Map(); // `${session_key}:${номер}` → Map<lap, секторы>
 
 async function getJSON(url) {
   let last;
@@ -33,32 +35,16 @@ async function getJSON(url) {
   throw last;
 }
 
-// --- список гонок сезона ---------------------------------------------------
-
-export async function fetchSeasonRaces(year) {
-  const [sessions, meetings] = await Promise.all([
-    getJSON(`${BASE}/sessions?year=${year}&session_name=Race`),
-    getJSON(`${BASE}/meetings?year=${year}`),
-  ]);
-  const names = new Map(meetings.map((m) => [m.meeting_key, m.meeting_name]));
-  const now = Date.now();
-  return sessions
-    // Будущие этапы отдавать нельзя: покруговки у них ещё нет.
-    .filter((s) => Date.parse(s.date_start) < now)
-    .sort((a, b) => a.date_start.localeCompare(b.date_start))
-    .map((s, i) => ({
-      round: i + 1,
-      sessionKey: s.session_key,
-      name: names.get(s.meeting_key) || s.circuit_short_name || `Этап ${i + 1}`,
-      date: s.date_start.slice(0, 10),
-    }));
-}
-
 // --- машина безопасности ---------------------------------------------------
 
 // Сообщения судейской в отрезки кругов. DEPLOYED открывает, ENDING и
 // «IN THIS LAP» закрывают. Штрафы «SAFETY CAR INFRINGEMENT» приходят
 // категорией Other и сюда не попадают.
+//
+// Виртуальную записывают двумя способами — «VIRTUAL SAFETY CAR DEPLOYED» и
+// сокращением «VSC DEPLOYED». Обе формы встречаются в реальных данных, и по
+// одному слову VIRTUAL половина отрезков молча уезжала в обычные SC.
+// «SAFETY CAR THROUGH THE PIT LANE» не открывает и не закрывает отрезок.
 export function parseSafetyCar(messages) {
   const sc = new Map();
   const open = { SC: null, VSC: null };
@@ -69,7 +55,7 @@ export function parseSafetyCar(messages) {
 
   for (const m of sorted) {
     const text = (m.message || '').toUpperCase();
-    const kind = text.includes('VIRTUAL') ? 'VSC' : 'SC';
+    const kind = /\bVSC\b|VIRTUAL/.test(text) ? 'VSC' : 'SC';
     const lap = parseInt(m.lap_number, 10);
     if (!Number.isFinite(lap)) continue;
 
@@ -81,7 +67,7 @@ export function parseSafetyCar(messages) {
       open[kind] = null;
     }
   }
-  // Отрезок без закрывающего сообщения — до конца гонки его тянуть нельзя,
+  // Отрезок без закрывающего сообщения до конца гонки тянуть нельзя —
   // помечаем только круг объявления.
   for (const [kind, from] of Object.entries(open)) {
     if (from != null && !sc.has(from)) sc.set(from, kind);
@@ -89,124 +75,66 @@ export function parseSafetyCar(messages) {
   return sc;
 }
 
-// --- гонка -----------------------------------------------------------------
+// --- поиск сессии ----------------------------------------------------------
 
-// onUpdate вызывается каждый раз, когда догрузилась очередная порция пилотов:
-// таблица показывается по первой тройке, остальные приезжают следом.
-export async function fetchRace(sessionKey, onProgress, onUpdate) {
-  if (cache.has(sessionKey)) {
-    const done = cache.get(sessionKey);
-    // Из кэша гонка может быть ещё недогруженной — тогда дадим знать, когда
-    // она достроится, иначе колонки так и останутся пустыми.
-    if (done.pending.size && onUpdate) done.whenFilled?.then(onUpdate);
-    return done;
+// Гонки сводим по дате. Сверено на 2023, 2025 и 2026: 69 гонок, ни одного
+// промаха, включая Лас-Вегас, который стартует за полночь по UTC.
+export async function findSession(year, date) {
+  if (Number(year) < FIRST_YEAR || !date) return null;
+  const key = `${year}:${date}`;
+  if (sessionCache.has(key)) return sessionCache.get(key);
+
+  let found = null;
+  try {
+    const sessions = await getJSON(`${BASE}/sessions?year=${year}&session_name=Race`);
+    const sameDay = sessions
+      .filter((s) => s.date_start?.slice(0, 10) === date)
+      .sort((a, b) => a.date_start.localeCompare(b.date_start));
+    found = sameDay.length ? sameDay[sameDay.length - 1].session_key : null;
+  } catch {
+    found = null; // OpenF1 недоступен — гонка всё равно покажется, без резины
   }
-  const say = (m) => onProgress && onProgress(m);
+  sessionCache.set(key, found);
+  return found;
+}
 
-  say('Загружаю состав…');
-  const [sessions, drivers, results] = await Promise.all([
-    getJSON(`${BASE}/sessions?session_key=${sessionKey}`),
-    getJSON(`${BASE}/drivers?session_key=${sessionKey}`),
-    getJSON(`${BASE}/session_result?session_key=${sessionKey}`).catch(() => []),
-  ]);
-  const session = sessions[0];
-  if (!drivers.length) throw new Error('OpenF1 не отдал состав этой гонки');
+// --- резина и судейская ----------------------------------------------------
 
-  const byNumber = new Map(results.map((r) => [r.driver_number, r]));
-  const roster = drivers.map((d) => {
-    const r = byNumber.get(d.driver_number);
-    return {
-      id: d.driver_number,
-      code: d.name_acronym || String(d.driver_number),
-      name: d.full_name || d.broadcast_name || '',
-      team: d.team_name || '',
-      position: r?.position ?? 999,
-      status: r?.dsq ? 'DSQ' : r?.dns ? 'DNS' : r?.dnf ? 'DNF' : 'Finished',
-    };
-  });
-  roster.sort((a, b) => a.position - b.position);
+// Оба запроса не постраничные и не по пилотам, поэтому быстрые.
+export async function fetchExtras(sessionKey) {
+  if (!sessionKey) return { sc: new Map(), tyres: new Map() };
+  if (extrasCache.has(sessionKey)) return extrasCache.get(sessionKey);
 
-  // Круги тянем по одному пилоту: ответ на всю сессию сразу API не отдаёт.
-  const laps = new Map();
-  const pits = new Map();
-  const race = {
-    sessionKey,
-    season: session?.year ?? new Date(session?.date_start || Date.now()).getFullYear(),
-    date: session?.date_start?.slice(0, 10) || '',
-    raceName: session?.location || 'Гонка',
-    drivers: roster,
-    lapCount: 0,
-    laps,
-    pits,
-    sc: new Map(),
-    tyres: new Map(),
-    pending: new Set(roster.map((d) => d.id)), // ещё не загруженные пилоты
-  };
-
-  const takeDriver = (d, rows) => {
-    const byLap = new Map();
-    for (const l of rows) {
-      const lap = parseInt(l.lap_number, 10);
-      if (!Number.isFinite(lap)) continue;
-      if (lap > race.lapCount) race.lapCount = lap;
-      // Круг заезда в боксы — тот, что перед выездом. Считаем отсюда, а не
-      // из /pit: тот эндпоинт теряет заезды, проверено на Венгрии-2026.
-      if (l.is_pit_out_lap && lap > 1) {
-        if (!pits.has(d.id)) pits.set(d.id, new Set());
-        pits.get(d.id).add(lap - 1);
-      }
-      if (l.lap_duration == null) continue;
-      byLap.set(lap, {
-        t: l.lap_duration,
-        s1: l.duration_sector_1 ?? null,
-        s2: l.duration_sector_2 ?? null,
-        s3: l.duration_sector_3 ?? null,
-      });
-    }
-    if (byLap.size) laps.set(d.id, byLap);
-    race.pending.delete(d.id);
-  };
-
-  const loadChunk = async (chunk) => {
-    const pages = await Promise.all(
-      chunk.map((d) =>
-        getJSON(`${BASE}/laps?session_key=${sessionKey}&driver_number=${d.id}`).catch(() => []),
-      ),
-    );
-    chunk.forEach((d, k) => takeDriver(d, pages[k]));
-  };
-
-  // Первая тройка — чтобы показать таблицу как можно раньше.
-  say(`Загружаю покруговку… первые ${FIRST}`);
-  await loadChunk(roster.slice(0, FIRST));
-  if (!laps.size) throw new Error('Для этой гонки покруговка недоступна');
-
-  const [stints, control, meetings] = await Promise.all([
+  const [stints, control] = await Promise.all([
     getJSON(`${BASE}/stints?session_key=${sessionKey}`).catch(() => []),
     getJSON(`${BASE}/race_control?session_key=${sessionKey}`).catch(() => []),
-    // Человеческое название этапа лежит только в meetings, в сессии его нет.
-    getJSON(`${BASE}/meetings?meeting_key=${session?.meeting_key}`).catch(() => []),
   ]);
-  race.raceName = meetings[0]?.meeting_name || race.raceName;
-  race.sc = parseSafetyCar(control);
-  race.tyres = expandStints(stints);
-  cache.set(sessionKey, race);
+  const extras = { sc: parseSafetyCar(control), tyres: expandStints(stints) };
+  extrasCache.set(sessionKey, extras);
+  return extras;
+}
 
-  // Остальные догружаются в фоне: таблица уже на экране и дополняется.
-  race.whenFilled = (async () => {
-    const rest = roster.slice(FIRST);
-    for (let i = 0; i < rest.length; i += BURST) {
-      await loadChunk(rest.slice(i, i + BURST));
-      const done = roster.length - race.pending.size;
-      say(race.pending.size ? `Догружаю остальных… ${done} из ${roster.length}` : '');
-      if (onUpdate) onUpdate(race);
-    }
-    // Кто так и не отдал ни одного круга — тот в таблице не нужен.
-    race.drivers = roster.filter((d) => laps.has(d.id));
-    say('');
-    if (onUpdate) onUpdate(race);
-    return race;
-  })();
+// --- секторы одного пилота -------------------------------------------------
 
-  return race;
+// Тянем по одному пилоту и только по запросу: это и есть медленная часть.
+export async function fetchDriverSectors(sessionKey, driverNumber) {
+  const key = `${sessionKey}:${driverNumber}`;
+  if (sectorCache.has(key)) return sectorCache.get(key);
+
+  const rows = await getJSON(
+    `${BASE}/laps?session_key=${sessionKey}&driver_number=${driverNumber}`,
+  ).catch(() => []);
+
+  const byLap = new Map();
+  for (const l of rows) {
+    const lap = parseInt(l.lap_number, 10);
+    if (!Number.isFinite(lap)) continue;
+    byLap.set(lap, {
+      s1: l.duration_sector_1 ?? null,
+      s2: l.duration_sector_2 ?? null,
+      s3: l.duration_sector_3 ?? null,
+    });
+  }
+  sectorCache.set(key, byLap);
+  return byLap;
 }

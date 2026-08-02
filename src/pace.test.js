@@ -38,14 +38,20 @@ function makeRace(laps, pitLaps, sc = new Map()) {
     lapCount = Math.max(lapCount, arr.length);
   }
   const pits = new Map(Object.entries(pitLaps).map(([id, ls]) => [id, new Set(ls)]));
-  return { lapCount, laps: byDriver, pits, sc };
+  return {
+    lapCount,
+    laps: byDriver,
+    pits,
+    sc,
+    drivers: Object.keys(laps).map((id) => ({ id })), // flagLaps идёт по составу
+  };
 }
 
 const race = makeRace(REF, PITS);
 const flags = flagLaps(race);
 const ALL = ['NOR', 'PIA', 'LEC', 'HAM'];
 const run = (opts = {}) =>
-  computePace(race, flags, { selected: ALL, overrides: new Map(), paceThreshold: 1.07, ...opts });
+  computePace(race, flags, { selected: ALL, overrides: new Map(), ...opts });
 
 // --- парсинг времени -------------------------------------------------------
 assert.equal(parseLapTime('1:22.251'), 82.251);
@@ -94,6 +100,18 @@ assert.equal(britain.get(16), 'SC');
 assert.equal(britain.get(1), undefined, 'формационный круг — не отрезок SC');
 assert.equal(britain.get(22), undefined, 'штрафы за нарушение под SC не считаются');
 assert.equal(britain.get(13), undefined);
+// Виртуальную пишут и сокращением — обе формы встречаются в живых данных,
+// и по одному слову VIRTUAL половина отрезков уезжала в обычные SC.
+const short = parseSafetyCar([
+  { category: 'SafetyCar', lap_number: 56, message: 'VSC DEPLOYED' },
+  { category: 'SafetyCar', lap_number: 57, message: 'VSC ENDING' },
+]);
+assert.deepEqual([...short], [[56, 'VSC'], [57, 'VSC']], 'VSC DEPLOYED — это виртуальная');
+// «SAFETY CAR THROUGH THE PIT LANE» не открывает и не закрывает отрезок.
+assert.equal(
+  parseSafetyCar([{ category: 'SafetyCar', lap_number: 5, message: 'SAFETY CAR THROUGH THE PIT LANE' }]).size,
+  0,
+);
 // Гонка без машины безопасности.
 assert.equal(parseSafetyCar([]).size, 0);
 // Объявление без закрывающего сообщения не тянется до конца гонки.
@@ -112,13 +130,34 @@ assert.equal(scFlags.get('B').get(6), 'SC');
 assert.equal(scFlags.get('A').get(3), 'VSC', 'виртуальная отличается от обычной');
 assert.equal(scFlags.get('A').get(7), undefined, 'обычный круг не помечается');
 assert.equal(scFlags.get('A').get(1), 'LAP1', 'старт важнее SC');
-// Ручная пометка добавляет и снимает поверх данных.
-assert.equal(flagLaps(scRace, { manualSC: new Map([[7, 'SC']]) }).get('A').get(7), 'SC');
-assert.equal(flagLaps(scRace, { manualSC: new Map([[5, false]]) }).get('A').get(5), undefined);
 // Пит сильнее SC: круг 5 у A становится заездом в боксы.
 const pitRace = makeRace({ A: [95, 90, 90, 90, 140, 141, 90] }, { A: [5] }, new Map([[5, 'SC'], [6, 'SC']]));
 assert.equal(flagLaps(pitRace).get('A').get(5), 'PIT', 'PIT сильнее SC');
 assert.equal(flagLaps(pitRace).get('A').get(6), 'OUT', 'OUT сильнее SC');
+
+// --- пометка SC отдельно по каждому пилоту ---------------------------------
+// Судейская даёт номер круга по лидеру, круговые в этот момент на круг позади,
+// поэтому пометка обязана быть пилотозависимой.
+const oneDriver = flagLaps(scRace, { manualSC: new Map([[key('A', 7), 'SC']]) });
+assert.equal(oneDriver.get('A').get(7), 'SC', 'помечен только A');
+assert.equal(oneDriver.get('B').get(7), undefined, 'у B тот же круг остался чистым');
+// Снятие тоже поштучное.
+const offOne = flagLaps(scRace, { manualSC: new Map([[key('A', 5), false]]) });
+assert.equal(offOne.get('A').get(5), undefined, 'у A пометка снята');
+assert.equal(offOne.get('B').get(5), 'SC', 'у B осталась');
+// Вид пометки сохраняется: VSC не должен превращаться в SC при переключении.
+assert.equal(flagLaps(scRace, { manualSC: new Map([[key('A', 3), 'VSC']]) }).get('A').get(3), 'VSC');
+// scKind даёт интерфейсу тот же порядок проверок, что и флаги.
+assert.equal(scFlags.scKind('A', 5), 'SC');
+assert.equal(scFlags.scKind('A', 7), null);
+assert.equal(oneDriver.scKind('A', 7), 'SC');
+assert.equal(oneDriver.scKind('B', 7), null);
+
+// Пометка на круге, которого у пилота нет в данных, не теряется — иначе
+// кнопка в интерфейсе горит, а в таблице ничего не меняется.
+const holey = makeRace({ A: [90, 90, 90] }, { A: [] });
+holey.lapCount = 6; // круги 4–6 у пилота отсутствуют
+assert.equal(flagLaps(holey, { manualSC: new Map([[key('A', 5), 'SC']]) }).get('A').get(5), 'SC');
 
 // --- темп по умолчанию: круг 1, PIT и OUT не участвуют ---------------------
 const base = run();
@@ -126,7 +165,8 @@ assert.equal(base.get('NOR').usedLaps, 18, '21 круг минус старт, P
 assert.equal(base.get('PIA').usedLaps, 18);
 assert.ok(Math.abs(base.get('NOR').pace - 82.7615) < 0.001);
 assert.ok(Math.abs(base.get('HAM').pace - 82.46794) < 0.001);
-assert.equal(base.get('NOR').dropped.size, 0, 'у NOR ровный темп, выбросов нет');
+// Порога выброса больше нет — поля dropped не должно остаться нигде.
+assert.equal(base.get('NOR').dropped, undefined, 'порог убран вместе с полем');
 
 // --- diff считается от лучшего, лучший получает 0 --------------------------
 assert.equal(base.get('HAM').best, true);
@@ -135,20 +175,15 @@ assert.equal(base.get('NOR').best, false);
 assert.ok(Math.abs(base.get('NOR').diff - (base.get('NOR').pace - base.get('HAM').pace)) < 1e-9);
 for (const id of ['NOR', 'PIA', 'LEC']) assert.ok(base.get(id).diff > 0, `${id} медленнее лучшего`);
 
-// --- ручной клик перекрывает флаг, порог ловит выброс ----------------------
+// --- ручной клик перекрывает флаг ------------------------------------------
 const on = new Map([[key('PIA', 15), true]]); // вручную вернули круг 102.741
 assert.equal(isIncluded('PIA', 15, flags, new Map()), false, 'по умолчанию OUT выключен');
 assert.equal(isIncluded('PIA', 15, flags, on), true, 'ручное включение сильнее флага');
 
-const strict = run({ overrides: on, paceThreshold: 1.07 });
-assert.equal(strict.get('PIA').dropped.has(15), true, '102.741 отсекается порогом 107%');
-assert.equal(strict.get('PIA').usedLaps, 18, 'выброс не попал в среднее');
-assert.ok(Math.abs(strict.get('PIA').pace - base.get('PIA').pace) < 1e-9);
-
-const loose = run({ overrides: on, paceThreshold: 1.5 });
-assert.equal(loose.get('PIA').dropped.has(15), false, 'при пороге 150% круг остаётся');
-assert.equal(loose.get('PIA').usedLaps, 19);
-assert.ok(loose.get('PIA').pace > strict.get('PIA').pace, 'выброс тянет темп вверх');
+// Порога больше нет: включённый вручную медленный круг честно идёт в среднее.
+const withSlow = run({ overrides: on });
+assert.equal(withSlow.get('PIA').usedLaps, 19, 'круг добавился к 18 обычным');
+assert.ok(withSlow.get('PIA').pace > base.get('PIA').pace, '102.741 тянет темп вверх');
 
 // Ручное выключение чистого круга тоже работает.
 const off = run({ overrides: new Map([[key('HAM', 13), false]]) });
@@ -167,16 +202,18 @@ assert.equal(run({ selected: ['GHOST'] }).get('GHOST').pace, null, 'пилот �
 
 // --- ручная пометка SC -----------------------------------------------------
 // Круг 7 чистый у всех; помечаем вручную — должен выпасть из темпа.
-const scOn = flagLaps(race, { manualSC: new Map([[7, true]]) });
+const scOn = flagLaps(race, { manualSC: new Map(ALL.map((id) => [key(id, 7), 'SC'])) });
 assert.equal(scOn.get('NOR').get(7), 'SC');
 assert.equal(scOn.get('HAM').get(7), 'SC');
 assert.equal(
-  computePace(race, scOn, { selected: ALL, overrides: new Map(), paceThreshold: 1.07 })
-    .get('NOR').usedLaps,
+  computePace(race, scOn, { selected: ALL, overrides: new Map() }).get('NOR').usedLaps,
   base.get('NOR').usedLaps - 1,
 );
 // Главное: ручной SC перекрывает время круга, но не пит-метки.
-const scOnPits = flagLaps(race, { manualSC: new Map([[13, true], [14, true], [11, true], [12, true]]) });
+const pitLaps = [11, 12, 13, 14];
+const scOnPits = flagLaps(race, {
+  manualSC: new Map(ALL.flatMap((id) => pitLaps.map((l) => [key(id, l), 'SC']))),
+});
 assert.equal(scOnPits.get('NOR').get(13), 'PIT', 'PIT сильнее ручного SC');
 assert.equal(scOnPits.get('NOR').get(14), 'OUT', 'OUT сильнее ручного SC');
 assert.equal(scOnPits.get('HAM').get(11), 'PIT', 'PIT сильнее ручного SC');
@@ -185,11 +222,11 @@ assert.equal(scOnPits.get('HAM').get(12), 'OUT', 'OUT сильнее ручно�
 assert.equal(scOnPits.get('LEC').get(13), 'SC');
 assert.equal(scOnPits.get('NOR').get(11), 'SC');
 // Старт по-прежнему главнее всего.
-assert.equal(flagLaps(race, { manualSC: new Map([[1, true]]) }).get('NOR').get(1), 'LAP1');
+assert.equal(flagLaps(race, { manualSC: new Map([[key('NOR', 1), 'SC']]) }).get('NOR').get(1), 'LAP1');
 // false снимает SC там, где автоопределение ошиблось.
 const scAuto = flagLaps(scRace);
 assert.equal(scAuto.get('A').get(5), 'SC');
-assert.equal(flagLaps(scRace, { manualSC: new Map([[5, false]]) }).get('A').get(5), undefined);
+assert.equal(flagLaps(scRace, { manualSC: new Map([[key('A', 5), false]]) }).get('A').get(5), undefined);
 // Пустая карта ничего не меняет.
 assert.deepEqual(flagLaps(race, { manualSC: new Map() }).get('NOR'), flags.get('NOR'));
 
@@ -283,36 +320,53 @@ for (const [id, r] of base) {
     const avg = r.points.reduce((a, [, v]) => a + v, 0) / r.points.length;
     assert.ok(Math.abs(avg - r.pace) < 1e-9, `${id}: среднее по points != pace`);
   }
-  for (const [lap] of r.points) assert.equal(r.dropped.has(lap), false, 'выброс попал в points');
+  for (const [lap] of r.points) {
+    assert.equal(isIncluded(id, lap, base === r ? flags : flags, new Map()), true,
+      `${id}: в points попал невключённый круг ${lap}`);
+  }
 }
 
 // --- составы резины --------------------------------------------------------
 // Реальные стинты NOR из Венгрии-2026: границы включительные, а один стинт
 // приходит с compound: null — OpenF1 так делает, и это не должно ломать разбор.
+// tyre_age_at_start взят настоящий: у NOR последний комплект б/у (age=3).
 const tyres = expandStints([
-  { driver_number: 1, lap_start: 1, lap_end: 17, compound: 'MEDIUM' },
-  { driver_number: 1, lap_start: 18, lap_end: 39, compound: 'HARD' },
-  { driver_number: 1, lap_start: 40, lap_end: 56, compound: null },
-  { driver_number: 1, lap_start: 57, lap_end: 70, compound: 'SOFT' },
+  { driver_number: 1, lap_start: 1, lap_end: 17, compound: 'MEDIUM', tyre_age_at_start: 0 },
+  { driver_number: 1, lap_start: 18, lap_end: 39, compound: 'HARD', tyre_age_at_start: 0 },
+  { driver_number: 1, lap_start: 40, lap_end: 56, compound: null, tyre_age_at_start: 1 },
+  { driver_number: 1, lap_start: 57, lap_end: 70, compound: 'SOFT', tyre_age_at_start: 3 },
   { driver_number: 4, lap_start: 1, lap_end: 20, compound: '' },
   { driver_number: 4, lap_start: 21, lap_end: 30, compound: 'ЧТО-ТО НОВОЕ' },
 ]);
 const nor = tyres.get(1);
-assert.equal(nor.get(1), 'MEDIUM');
-assert.equal(nor.get(17), 'MEDIUM', 'верхняя граница стинта включительная');
-assert.equal(nor.get(18), 'HARD', 'следующий стинт начинается сразу за ней');
-assert.equal(nor.get(39), 'HARD');
-assert.equal(nor.get(57), 'SOFT');
-assert.equal(nor.get(70), 'SOFT');
+const comp = (lap) => nor.get(lap)?.compound;
+assert.equal(comp(1), 'MEDIUM');
+assert.equal(comp(17), 'MEDIUM', 'верхняя граница стинта включительная');
+assert.equal(comp(18), 'HARD', 'следующий стинт начинается сразу за ней');
+assert.equal(comp(39), 'HARD');
+assert.equal(comp(57), 'SOFT');
+assert.equal(comp(70), 'SOFT');
 assert.equal(nor.get(71), undefined);
 // Стинт, у которого OpenF1 потерял состав, показывается как «неизвестен»,
 // а не выпадает молча: пустая ячейка читалась бы как поломка вёрстки.
-assert.equal(nor.get(40), 'UNKNOWN');
-assert.equal(nor.get(56), 'UNKNOWN');
+assert.equal(comp(40), 'UNKNOWN');
+assert.equal(comp(56), 'UNKNOWN');
 assert.equal(nor.size, 70, 'развёрнуты все круги гонки');
+
+// Номер круга на комплекте: считается от tyre_age_at_start, а не от единицы —
+// комплект бывает б/у после квалификации.
+assert.equal(nor.get(1).age, 1, 'новый комплект — первый круг');
+assert.equal(nor.get(17).age, 17);
+assert.equal(nor.get(18).age, 1, 'новый стинт — счёт заново');
+assert.equal(nor.get(40).age, 2, 'комплект с пробегом 1 круг стартует со второго');
+assert.equal(nor.get(57).age, 4, 'б/у комплект NOR: age=3, значит первый гоночный круг четвёртый');
+assert.equal(nor.get(70).age, 17);
+// Отсутствующий tyre_age_at_start читается как новый комплект.
+assert.equal(tyres.get(4).get(1).age, 1);
+
 // Пустая строка и незнакомый состав тоже становятся «неизвестен».
-assert.equal(tyres.get(4).get(1), 'UNKNOWN');
-assert.equal(tyres.get(4).get(25), 'UNKNOWN');
+assert.equal(tyres.get(4).get(1).compound, 'UNKNOWN');
+assert.equal(tyres.get(4).get(25).compound, 'UNKNOWN');
 assert.deepEqual(expandStints([]), new Map());
 // Битые границы отбрасываются — на них цикл развёртки зациклился бы.
 assert.deepEqual(expandStints([{ driver_number: 9, lap_start: null, lap_end: 5, compound: 'SOFT' }]), new Map());

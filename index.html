@@ -32,10 +32,18 @@
         <select id="metric"></select>
       </div>
       <div class="field push">
-        <label for="threshold">Порог выброса · <span id="threshold-value">102%</span></label>
-        <input id="threshold" type="range" min="100" max="115" step="0.5" value="102" />
+        <label for="source">Источник покруговки</label>
+        <select id="source">
+          <option value="jolpica">Jolpica · целые круги</option>
+          <option value="openf1">OpenF1 · с секторами</option>
+        </select>
       </div>
     </section>
+
+    <p id="openf1-note" class="hint tyre-note" hidden>
+      Для этой гонки нет данных OpenF1 (они начинаются с сезона 2023), поэтому
+      нет резины, отметок SC/VSC и секторов. Круги и пит-стопы на месте.
+    </p>
 
     <div id="status" class="status" hidden></div>
     <div id="meta" class="meta" hidden></div>
@@ -52,7 +60,6 @@
     <div id="legend" class="legend" hidden>
       <span><i>1:24.418</i> — учитывается</span>
       <span><i class="sw-off">1:24.418</i> — выключен</span>
-      <span><i class="sw-outlier">1:24.418</i> — выброс, отсечён порогом</span>
       <span><span class="flag">PIT</span> заезд в боксы</span>
       <span><span class="flag">OUT</span> круг после пит-стопа</span>
       <span><span class="flag f-SC">SC</span> машина безопасности</span>
@@ -67,8 +74,10 @@
         <i class="tyre" style="--comp:#7C8494">?</i> состав неизвестен
       </span>
       <span>Клик по времени — вкл/выкл круг, по номеру круга — весь ряд, по коду пилота — убрать колонку.
-      Кнопка <span class="flag f-SC">SC</span> у номера круга ставит и снимает машину безопасности на всём круге; пит-круги она не перекрывает.
-      Данные о SC/VSC приходят из судейской OpenF1, ручная пометка нужна для правок.</span>
+      Кнопка <span class="flag f-SC">SC</span> у номера круга ставит и снимает пометку сразу у всех выбранных;
+      значок в углу ячейки — только у этого пилота (круги под машиной безопасности у пилотов не совпадают).
+      Пит-круги пометка не перекрывает. Данные о SC/VSC приходят из судейской OpenF1.
+      Цифра слева в ячейке — номер круга на текущем комплекте резины.</span>
     </div>
 
     <section id="tyre-panel" class="tyre-panel" hidden>

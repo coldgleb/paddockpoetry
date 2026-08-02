@@ -1,4 +1,5 @@
-import { fetchSeasonRaces, fetchRace } from './openf1.js';
+import { fetchSeasonRaces, fetchRace } from './jolpica.js';
+import { findSession, fetchExtras, fetchDriverSectors, FIRST_YEAR } from './openf1.js';
 import {
   flagLaps, computePace, isIncluded, autoIncluded, formatLapTime, lapValue, METRICS, key,
 } from './pace.js';
@@ -6,8 +7,8 @@ import { teamColor, onColor } from './teams.js';
 import { renderChart } from './chart.js';
 import { COMPOUNDS } from './tyres.js';
 
-// OpenF1 начинается с 2023 года — раньше данных просто нет.
-const SEASONS = [2026, 2025, 2024, 2023];
+// Jolpica покрывает 2018+; резина, судейская и секторы — только с 2023.
+const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
 const DEFAULT_DRIVERS = 5; // сразу показываем топ-5, остальных пилотов добавляет пользователь
 
 const state = {
@@ -15,11 +16,13 @@ const state = {
   flags: null,
   selected: [], // driverId (номер машины), порядок = порядок колонок
   overrides: new Map(), // "driverId:lap" → true/false, ручной клик
-  paceThreshold: 1.02,
   range: null, // { from, to } — круги с X по Y
-  manualSC: new Map(), // круг → 'SC'/'VSC'/false, ручная пометка
+  manualSC: new Map(), // "driverId:lap" → 'SC'/'VSC'/false, пометка по пилоту
   manualTyres: [], // [{ driverId, from, to, compound }] — поверх данных OpenF1
   metric: 'lap', // что сравниваем: круг, сектор или сумма секторов
+  source: 'jolpica', // откуда покруговка: 'jolpica' (быстро) | 'openf1' (секторы)
+  sessionKey: null, // сессия OpenF1 для этой гонки, если нашлась
+  loadingSectors: new Set(), // по кому секторы едут прямо сейчас
 };
 
 const $ = (id) => document.getElementById(id);
@@ -27,8 +30,7 @@ const els = {
   season: $('season'),
   race: $('race'),
   load: $('load'),
-  threshold: $('threshold'),
-  thresholdValue: $('threshold-value'),
+  source: $('source'),
   status: $('status'),
   meta: $('meta'),
   drivers: $('drivers'),
@@ -48,6 +50,7 @@ const els = {
   tyreCompound: $('tyre-compound'),
   tyreAdd: $('tyre-add'),
   tyreList: $('tyre-list'),
+  openf1Note: $('openf1-note'),
 };
 
 function setStatus(msg, isError = false) {
@@ -66,7 +69,7 @@ function render() {
 }
 
 function renderTable() {
-  const { race, flags, selected, overrides, paceThreshold, range, metric } = state;
+  const { race, flags, selected, overrides, range, metric } = state;
   if (!race) return;
 
   if (!selected.length) {
@@ -74,7 +77,7 @@ function renderTable() {
     return;
   }
 
-  const rows = computePace(race, flags, { selected, overrides, paceThreshold, range, metric });
+  const rows = computePace(race, flags, { selected, overrides, range, metric });
   const byId = new Map(race.drivers.map((d) => [d.id, d]));
   const color = (id) => teamColor(byId.get(id)?.team);
 
@@ -113,50 +116,63 @@ function renderTable() {
   const from = range?.from ?? 1;
   const to = range?.to ?? race.lapCount;
   for (let lap = from; lap <= to; lap++) {
-    const sc = isSC(lap);
+    // Кнопка в столбце кругов трогает всех выбранных сразу; поштучная правка —
+    // значком в самой ячейке, ниже.
+    const rowSC = selected.length && selected.every((id) => !!flags.scKind(id, lap));
     html +=
       `<tr><th class="lapno"><span class="lapcell">` +
       `<button class="lap" data-lap="${lap}" title="Переключить весь круг">${lap}</button>` +
-      `<button class="sc-btn${sc ? ' on' : ''}" data-sc="${lap}" aria-pressed="${sc}" ` +
-      `title="${sc ? 'Снять машину безопасности с круга' : 'Пометить круг машиной безопасности'}">SC</button>` +
+      `<button class="sc-btn${rowSC ? ' on' : ''}" data-sc="${lap}" aria-pressed="${rowSC}" ` +
+      `title="${rowSC ? 'Снять SC у всех выбранных' : 'Пометить SC у всех выбранных'}">SC</button>` +
       `</span></th>`;
     for (const id of selected) {
       const entry = race.laps.get(id)?.get(lap);
       const v = lapValue(entry, metric);
+      const flag = flags.get(id)?.get(lap);
+      const kind = flags.scKind(id, lap); // 'SC' | 'VSC' | null — состояние значка
+
       if (v == null) {
-        // Три разных причины пустоты, и путать их нельзя: пилот ещё грузится,
-        // OpenF1 не отдал круг вовсе, или у круга нет нужного сектора.
-        const why = race.pending?.has(id)
-          ? 'загружается'
+        // Четыре разные причины пустоты, и путать их нельзя.
+        const why = state.loadingSectors.has(id)
+          ? 'секторы загружаются'
           : entry
-            ? `нет сектора (${METRICS[metric].label})`
-            : 'OpenF1 не отдал этот круг';
-        html += `<td class="empty" title="${why}">·</td>`;
+            ? `нет данных сектора (${METRICS[metric].label})`
+            : isSectorMetric(metric) && state.source !== 'openf1'
+              ? 'секторы есть только у OpenF1 — переключи источник'
+              : 'круга нет в данных';
+        html += `<td class="empty" data-driver="${id}" data-lap="${lap}" title="${why}">·</td>`;
         continue;
       }
-      const flag = flags.get(id)?.get(lap);
+
       const on = isIncluded(id, lap, flags, overrides, range);
-      const outlier = rows.get(id).dropped.has(lap);
-      const cls = ['cell', on ? (outlier ? 'outlier' : 'on') : 'off'].join(' ');
+      const cls = ['cell', on ? 'on' : 'off'].join(' ');
       // Пит-круги показываем меткой, как на таймингах; при ручном включении —
       // настоящим временем, иначе непонятно, что именно пошло в темп.
       const marked = !on && (flag === 'PIT' || flag === 'OUT' || flag === 'SC' || flag === 'VSC');
       const label = marked ? `<span class="flag f-${flag}">${flag}</span>` : formatLapTime(v);
 
-      // Резина: полоса слева на каждом круге стинта, буква — только на первом.
-      // Полоса читается как сплошной блок стинта, буква даёт опознание без
-      // опоры на цвет (софт и хард различаются красным и белым).
-      const comp = compoundAt(id, lap);
-      const c = comp && COMPOUNDS[comp];
-      const first = c && compoundAt(id, lap - 1) !== comp;
-      const tyre = c
-        ? ` style="--comp:${c.color}"` +
-          (first ? ` data-comp="${c.letter}"` : '')
+      // Резина: полоса слева на каждом круге стинта, буква — только на первом,
+      // номер круга на комплекте — на каждом. Полоса читается как сплошной
+      // блок стинта, буква даёт опознание без опоры на цвет.
+      const t = tyreAt(id, lap);
+      const c = t && COMPOUNDS[t.compound];
+      const prev = tyreAt(id, lap - 1);
+      const first = c && prev?.compound !== t.compound;
+      const tyreAttr = c
+        ? ` style="--comp:${c.color}"` + (first ? ` data-comp="${c.letter}"` : '')
         : '';
+      const age = t?.age != null ? `<span class="age">${t.age}</span>` : '';
 
-      const hint = `${formatLapTime(v)}${c ? ' · ' + c.name : ''}` +
-        `${flag ? ' · ' + flag : ''}${outlier ? ' · выброс' : ''}`;
-      html += `<td class="${cls}${c ? ' has-tyre' : ''}" data-driver="${id}" data-lap="${lap}" title="${hint}"${tyre}>${label}</td>`;
+      const hint =
+        `${formatLapTime(v)}` +
+        `${c ? ` · ${c.name}, ${t.age}-й круг на комплекте` : ''}` +
+        `${flag ? ' · ' + flag : ''}`;
+      html +=
+        `<td class="${cls}${c ? ' has-tyre' : ''}" data-driver="${id}" data-lap="${lap}" ` +
+        `title="${hint}"${tyreAttr}>${age}${label}` +
+        `<button class="cell-sc${kind ? ' on' : ''}" data-cellsc="${id}:${lap}" ` +
+        `title="${kind ? `Снять ${kind} у этого пилота` : 'Пометить SC только этому пилоту'}">` +
+        `${kind || 'SC'}</button></td>`;
     }
     html += '</tr>';
   }
@@ -177,12 +193,12 @@ function stickHeader() {
   }
 }
 
-// На графике только зачётные круги — те же точки, что дали темп. Круги,
-// не прошедшие порог, из графика убраны, разрыв рисуется пунктиром.
+// На графике только зачётные круги — те же точки, что дали темп. Разрывы
+// (пит, SC, ручные выключения) рисуются пунктиром.
 function renderChartPanel() {
-  const { race, flags, selected, overrides, paceThreshold, range, metric } = state;
+  const { race, flags, selected, overrides, range, metric } = state;
   if (!race) return;
-  const rows = computePace(race, flags, { selected, overrides, paceThreshold, range, metric });
+  const rows = computePace(race, flags, { selected, overrides, range, metric });
   const byId = new Map(race.drivers.map((d) => [d.id, d]));
   const win = range || { from: 1, to: race.lapCount };
 
@@ -199,17 +215,19 @@ function renderChartPanel() {
 }
 
 function renderDriverChips() {
-  const pending = state.race.pending || new Set();
   els.drivers.innerHTML = state.race.drivers
     .map((d) => {
       const c = teamColor(d.team);
       const active = state.selected.includes(d.id);
-      const wait = pending.has(d.id); // покруговка ещё едет
+      const busy = state.loadingSectors.has(d.id); // секторы едут прямо сейчас
       const style = active
         ? `background:${c};border-color:${c};color:${onColor(c)}`
         : `--team:${c}`;
-      const hint = `${d.name} · ${d.team}${wait ? ' · покруговка ещё загружается' : ''}`;
-      return `<button class="chip${active ? ' active' : ''}${wait ? ' pending' : ''}" style="${style}" data-driver="${d.id}" title="${hint}">${d.code}</button>`;
+      const hint = `${d.name} · ${d.team}${busy ? ' · загружаю секторы' : ''}`;
+      return (
+        `<button class="chip${active ? ' active' : ''}${busy ? ' busy' : ''}" style="${style}" ` +
+        `data-driver="${d.id}"${busy ? ' aria-busy="true"' : ''} title="${hint}">${d.code}</button>`
+      );
     })
     .join('');
 }
@@ -218,20 +236,24 @@ function renderMeta() {
   const r = state.race;
   els.meta.hidden = !r;
   if (!r) return;
+  const src = state.source === 'openf1' ? 'секторы OpenF1' : 'круги Jolpica';
   els.meta.innerHTML =
     `<strong>${r.raceName}</strong><span>${r.season}</span><span>${r.date}</span>` +
-    `<span>${r.lapCount} кругов</span><span>${r.laps.size} пилотов</span>`;
+    `<span>${r.lapCount} кругов</span><span>${r.laps.size} пилотов</span><span>${src}</span>`;
 }
 
 // --- резина ----------------------------------------------------------------
 
 // Ручные отрезки главнее данных OpenF1 и перекрывают друг друга снизу вверх:
 // последний добавленный выигрывает, так что ошибку можно переписать новой
-// записью, не удаляя старую.
-function compoundAt(driverId, lap) {
+// записью, не удаляя старую. Возраст комплекта у ручного отрезка считаем от
+// его начала — откуда бы нам знать реальный пробег.
+function tyreAt(driverId, lap) {
   for (let i = state.manualTyres.length - 1; i >= 0; i--) {
     const m = state.manualTyres[i];
-    if (m.driverId === driverId && lap >= m.from && lap <= m.to) return m.compound;
+    if (m.driverId === driverId && lap >= m.from && lap <= m.to) {
+      return { compound: m.compound, age: lap - m.from + 1 };
+    }
   }
   return state.race?.tyres?.get(driverId)?.get(lap) || null;
 }
@@ -287,18 +309,37 @@ function addManualTyre() {
 const included = (id, lap) =>
   isIncluded(id, lap, state.flags, state.overrides, state.range);
 
-// Круг под машиной безопасности. Ручную пометку проверяем первой: если на
-// этом круге все пилоты в боксах, флага не будет ни у кого, а пометка стоит.
-function isSC(lap) {
-  if (state.manualSC.has(lap)) return !!state.manualSC.get(lap);
-  return state.race?.sc?.has(lap) || false;
+function refreshFlags() {
+  state.flags = flagLaps(state.race, { manualSC: state.manualSC });
 }
 
-// SC — состояние трассы, а не пилота, поэтому ставится на весь круг сразу.
-// PIT и OUT он не перекрывает: приоритет задан порядком проверок в flagLaps.
-function toggleSC(lap) {
-  state.manualSC.set(lap, isSC(lap) ? false : 'SC');
-  state.flags = flagLaps(state.race, { manualSC: state.manualSC });
+// Пометка SC у одного пилота на одном круге. Судейская даёт номер круга по
+// лидеру, а круговые в этот момент на круг позади — поэтому правка поштучная.
+// PIT и OUT пометка не перекрывает: приоритет задан порядком в flagLaps.
+function toggleCellSC(driverId, lap) {
+  const k = key(driverId, lap);
+  const kind = state.flags.scKind(driverId, lap);
+  const auto = state.race?.sc?.get(lap) || null;
+  // Если ручное значение совпало с тем, что и так следует из данных, override
+  // не держим — иначе он «залипнет» после смены источника или сброса.
+  const next = kind ? false : 'SC';
+  if ((next || null) === auto) state.manualSC.delete(k);
+  else state.manualSC.set(k, next);
+  refreshFlags();
+  render();
+}
+
+// Кнопка в столбце кругов: применить ко всем выбранным разом.
+function toggleRowSC(lap) {
+  const anyOff = state.selected.some((id) => !state.flags.scKind(id, lap));
+  for (const id of state.selected) {
+    const k = key(id, lap);
+    const auto = state.race?.sc?.get(lap) || null;
+    const next = anyOff ? 'SC' : false;
+    if ((next || null) === auto) state.manualSC.delete(k);
+    else state.manualSC.set(k, next);
+  }
+  refreshFlags();
   render();
 }
 
@@ -344,13 +385,57 @@ function resetRange() {
 }
 
 function toggleDriver(driverId) {
-  state.selectionTouched = true; // дальше сами топ-5 не подставляем
   const i = state.selected.indexOf(driverId);
   if (i >= 0) state.selected.splice(i, 1);
   else state.selected.push(driverId);
   // Колонки держим в порядке финиша, иначе добавленный пилот прыгает в конец.
   const order = state.race.drivers.map((d) => d.id);
   state.selected.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  ensureSectors(); // новому пилоту могут понадобиться секторы
+}
+
+// --- секторы по требованию -------------------------------------------------
+
+const isSectorMetric = (metric) => !!METRICS[metric]?.parts;
+
+// Секторы тянем только у выбранных и только по одному: это самая медленная
+// часть OpenF1, грузить ими всех скопом бессмысленно.
+let sectorQueue = Promise.resolve();
+
+function ensureSectors() {
+  if (state.source !== 'openf1' || !state.sessionKey || !state.race) return;
+  const race = state.race;
+  for (const id of state.selected) {
+    if (race.sectorsFor.has(id) || state.loadingSectors.has(id)) continue;
+    state.loadingSectors.add(id);
+    sectorQueue = sectorQueue.then(async () => {
+      if (state.race !== race || !state.selected.includes(id)) {
+        state.loadingSectors.delete(id); // гонку сменили или пилота убрали
+        return;
+      }
+      try {
+        const byLap = await fetchDriverSectors(state.sessionKey, id);
+        // Секторы доливаем в те же объекты кругов, что пришли от Jolpica:
+        // так у нас полный список кругов и секторы там, где OpenF1 их знает.
+        const laps = race.laps.get(id);
+        if (laps) {
+          for (const [lap, s] of byLap) Object.assign(laps.get(lap) || {}, s);
+        }
+        race.sectorsFor.add(id);
+      } finally {
+        state.loadingSectors.delete(id);
+        if (state.race === race) {
+          renderDriverChips();
+          render();
+          setStatus(state.loadingSectors.size ? 'Загружаю секторы…' : '');
+        }
+      }
+    });
+  }
+  if (state.loadingSectors.size) {
+    renderDriverChips();
+    setStatus('Загружаю секторы…');
+  }
 }
 
 // --- загрузка --------------------------------------------------------------
@@ -363,19 +448,17 @@ async function loadSeason() {
     const races = await fetchSeasonRaces(year);
     if (!races.length) throw new Error('В этом сезоне ещё нет прошедших гонок');
     els.race.innerHTML = races
-      .map((r) => `<option value="${r.sessionKey}">${r.round}. ${r.name}</option>`)
+      .map((r) => `<option value="${r.round}">${r.round}. ${r.name}</option>`)
       .join('');
     els.race.disabled = false;
     // Последняя прошедшая гонка — самый частый интерес.
-    els.race.value = races[races.length - 1].sessionKey;
+    els.race.value = races[races.length - 1].round;
   } catch (e) {
     els.race.innerHTML = '<option>—</option>';
     setStatus(e.message, true);
   }
 }
 
-// Поля кругов и границы диапазона зависят от lapCount, а он растёт по мере
-// дозагрузки пилотов — держим их в одном месте.
 function syncLapInputs() {
   const max = state.race?.lapCount || 1;
   els.lapFrom.max = els.lapTo.max = els.tyreFrom.max = els.tyreTo.max = max;
@@ -385,30 +468,7 @@ function syncLapInputs() {
   els.tyreTo.value = max;
 }
 
-// Приехала очередная порция пилотов: дополняем то, что уже на экране.
-function onRaceUpdate(race) {
-  if (state.race !== race) return; // пользователь успел переключить гонку
-  state.flags = flagLaps(race, { manualSC: state.manualSC });
-  // Диапазон расширяем только если его не трогали руками.
-  if (!state.rangeTouched) {
-    state.range = { from: 1, to: race.lapCount };
-    syncLapInputs();
-  }
-  // Доводим выбор до топ-5, пока пользователь сам не вмешался.
-  if (!state.selectionTouched) {
-    state.selected = race.drivers
-      .filter((d) => race.laps.has(d.id))
-      .slice(0, DEFAULT_DRIVERS)
-      .map((d) => d.id);
-  }
-  renderMeta();
-  renderDriverChips();
-  renderTyrePanel();
-  render();
-}
-
 async function load() {
-  state.selectionTouched = false;
   els.load.disabled = true;
   els.table.innerHTML = '';
   els.chart.innerHTML = '';
@@ -418,20 +478,20 @@ async function load() {
   els.range.hidden = true;
   els.chartPanel.hidden = true;
   els.tyrePanel.hidden = true;
+  els.openf1Note.hidden = true;
+  state.loadingSectors.clear();
   try {
-    // Ждём только первых пилотов, остальные приезжают в onUpdate.
-    const race = await fetchRace(Number(els.race.value), setStatus, onRaceUpdate);
+    const year = Number(els.season.value);
+    const race = await fetchRace(year, Number(els.race.value), setStatus);
     state.race = race;
+    state.sessionKey = null;
     state.manualSC = new Map();
     state.manualTyres = [];
-    state.flags = flagLaps(race);
     state.overrides = new Map();
     state.rangeTouched = false;
     state.range = { from: 1, to: race.lapCount };
-    state.selected = race.drivers
-      .filter((d) => race.laps.has(d.id))
-      .slice(0, DEFAULT_DRIVERS)
-      .map((d) => d.id);
+    state.selected = race.drivers.slice(0, DEFAULT_DRIVERS).map((d) => d.id);
+    refreshFlags();
     syncLapInputs();
     renderMeta();
     renderDriverChips();
@@ -440,6 +500,23 @@ async function load() {
     els.range.hidden = false;
     els.chartPanel.hidden = false;
     render();
+
+    // Резина и судейская — из OpenF1, один быстрый запрос на каждое. Таблица
+    // уже на экране, так что их отсутствие ничего не задерживает.
+    const sessionKey = await findSession(year, race.date);
+    if (state.race !== race) return;
+    state.sessionKey = sessionKey;
+    if (sessionKey) {
+      const { sc, tyres } = await fetchExtras(sessionKey);
+      if (state.race !== race) return;
+      race.sc = sc;
+      race.tyres = tyres;
+      refreshFlags();
+      renderTyrePanel();
+      render();
+    }
+    els.openf1Note.hidden = !!sessionKey;
+    ensureSectors();
   } catch (e) {
     setStatus(e.message, true);
   } finally {
@@ -453,12 +530,6 @@ els.season.innerHTML = SEASONS.map((y) => `<option>${y}</option>`).join('');
 els.season.addEventListener('change', loadSeason);
 els.load.addEventListener('click', load);
 
-els.threshold.addEventListener('input', () => {
-  state.paceThreshold = els.threshold.value / 100;
-  els.thresholdValue.textContent = `${els.threshold.value}%`;
-  render();
-});
-
 els.lapFrom.addEventListener('input', applyRange);
 els.lapTo.addEventListener('input', applyRange);
 els.lapReset.addEventListener('click', resetRange);
@@ -468,6 +539,30 @@ els.metric.innerHTML = Object.entries(METRICS)
   .join('');
 els.metric.addEventListener('change', () => {
   state.metric = els.metric.value;
+  // Секторы есть только у OpenF1, так что выбор сектора сам переключает
+  // источник — иначе он молча не сработал бы.
+  if (isSectorMetric(state.metric) && state.source !== 'openf1') {
+    state.source = 'openf1';
+    els.source.value = 'openf1';
+    setStatus('Секторы есть только у OpenF1 — переключил источник.');
+  }
+  renderMeta();
+  ensureSectors();
+  render();
+});
+
+els.source.addEventListener('change', () => {
+  state.source = els.source.value;
+  if (state.source === 'jolpica' && isSectorMetric(state.metric)) {
+    // Обратный переход на Jolpica несовместим с секторной метрикой.
+    state.metric = 'lap';
+    els.metric.value = 'lap';
+    setStatus('Jolpica отдаёт только целые круги — метрика вернулась к кругу.');
+  } else {
+    setStatus('');
+  }
+  renderMeta();
+  ensureSectors();
   render();
 });
 
@@ -502,8 +597,15 @@ els.drivers.addEventListener('click', (e) => {
 // ponytail: полный ререндер таблицы на каждый клик; ~70×20 ячеек — незаметно.
 // Начнёт тормозить — обновлять точечно только шапку с темпом и отставанием.
 els.table.addEventListener('click', (e) => {
+  // Значок SC внутри ячейки проверяем первым — он лежит поверх самой ячейки.
+  const cellSC = e.target.closest('.cell-sc');
+  if (cellSC) {
+    const [id, lap] = cellSC.dataset.cellsc.split(':');
+    return toggleCellSC(Number(id), Number(lap));
+  }
+
   const scBtn = e.target.closest('.sc-btn');
-  if (scBtn) return toggleSC(+scBtn.dataset.sc);
+  if (scBtn) return toggleRowSC(+scBtn.dataset.sc);
 
   const lapBtn = e.target.closest('.lap');
   if (lapBtn) return toggleRow(+lapBtn.dataset.lap), render();

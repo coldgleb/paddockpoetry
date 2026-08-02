@@ -51,29 +51,39 @@ export function median(values) {
 // manualSC — Map<круг, 'SC' | false>: ручная пометка. Порядок проверок ниже
 // даёт нужный приоритет: PIT и OUT сильнее SC, то есть ручная пометка
 // перекрывает время круга, но не пит-метки.
+// manualSC — Map<"driverId:lap", 'SC' | 'VSC' | false>. Пометка теперь
+// пилотозависимая: судейская даёт один номер круга на всю трассу, но пилоты
+// в этот момент на разных кругах, поэтому автоопределение — лишь первое
+// приближение, и правка нужна поштучно.
 export function flagLaps(race, { manualSC = null } = {}) {
-  const track = new Map(race.sc || []);
-  if (manualSC) {
-    for (const [lap, on] of manualSC) {
-      if (on) track.set(lap, typeof on === 'string' ? on : 'SC');
-      else track.delete(lap);
-    }
-  }
+  const track = race.sc || new Map();
+
+  // Флаг конкретного пилота на конкретном круге — вынесено, потому что тем же
+  // порядком проверок пользуется интерфейс, когда рисует кнопку SC.
+  const scKind = (driverId, lap) => {
+    const manual = manualSC?.get(key(driverId, lap));
+    if (manual !== undefined) return manual || null; // false снимает пометку
+    return track.get(lap) || null;
+  };
 
   const flags = new Map();
-  for (const [driverId, byLapEntry] of race.laps) {
+  for (const driver of race.drivers) {
+    const driverId = driver.id;
     const pits = race.pits.get(driverId) || new Set();
     const byLap = new Map();
-    for (const lap of byLapEntry.keys()) {
+    // Идём по всем кругам гонки, а не только по тем, что есть у пилота: иначе
+    // пометка на пропущенном круге молча терялась бы и кнопка врала.
+    for (let lap = 1; lap <= race.lapCount; lap++) {
       let flag = null;
       if (lap === 1) flag = 'LAP1';
       else if (pits.has(lap)) flag = 'PIT';
       else if (pits.has(lap - 1)) flag = 'OUT';
-      else if (track.has(lap)) flag = track.get(lap);
+      else flag = scKind(driverId, lap);
       if (flag) byLap.set(lap, flag);
     }
     flags.set(driverId, byLap);
   }
+  flags.scKind = scKind; // интерфейсу нужен тот же порядок проверок
   return flags;
 }
 
@@ -107,38 +117,28 @@ export function formatLapTime(sec) {
   return `${m}:${((ms - m * 60000) / 1000).toFixed(3).padStart(6, '0')}`;
 }
 
-// Темп = среднее выбранных кругов, но круги медленнее личной медианы
-// более чем в paceThreshold раз выбрасываются (SC-заезды, ошибки, трафик).
-export function computePace(
-  race,
-  flags,
-  { selected, overrides, paceThreshold = 1.02, range = null, metric = 'lap' },
-) {
+// Темп = среднее по выбранным кругам. Порога выброса больше нет: он был
+// костылём под SC/VSC/PIT/OUT, а те теперь определяются из данных судейской
+// и пит-стопов.
+export function computePace(race, flags, { selected, overrides, range = null, metric = 'lap' }) {
   const rows = new Map();
 
   for (const driverId of selected) {
     const byLap = race.laps.get(driverId);
-    const used = [];
+    // points — ровно те круги, что легли в темп. График рисуется из них,
+    // поэтому он не может разойтись с числом в шапке.
+    const points = [];
     if (byLap) {
       for (const [lap, entry] of byLap) {
         if (!isIncluded(driverId, lap, flags, overrides, range)) continue;
         const v = lapValue(entry, metric);
-        if (v != null) used.push([lap, v]); // круг без нужного сектора пропускаем
+        if (v != null) points.push([lap, v]); // круг без нужного сектора пропускаем
       }
-    }
-    const med = median(used.map(([, v]) => v));
-    const dropped = new Set();
-    // points — ровно те круги, что легли в темп. График рисуется из них,
-    // поэтому он не может разойтись с числом в шапке.
-    const points = [];
-    for (const [lap, v] of used) {
-      if (med != null && v > med * paceThreshold) dropped.add(lap);
-      else points.push([lap, v]);
     }
     const pace = points.length
       ? points.reduce((a, [, v]) => a + v, 0) / points.length
       : null;
-    rows.set(driverId, { pace, diff: null, best: false, usedLaps: points.length, dropped, points });
+    rows.set(driverId, { pace, diff: null, best: false, usedLaps: points.length, points });
   }
 
   const paces = [...rows.values()].map((r) => r.pace).filter((p) => p != null);

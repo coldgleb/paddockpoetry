@@ -81,7 +81,6 @@ button.primary:hover:not(:disabled) { background: #f4553f; border-color: #f4553f
 button.primary:disabled { opacity: .5; cursor: default; }
 
 input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); border: none; background: none; }
-#threshold-value { color: var(--text); font-variant-numeric: tabular-nums; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -136,9 +135,11 @@ input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); bor
 .chip:hover { color: var(--text); border-color: var(--muted); }
 .chip.active { padding-left: 11px; }
 .chip.active::before { display: none; }
-/* Пилот, чья покруговка ещё едет: кликнуть можно, но колонка будет пустой. */
-.chip.pending { opacity: .45; }
-.chip.pending::after { content: "…"; margin-left: 3px; }
+/* Пилот, чьи секторы едут прямо сейчас: пульсирует, пока не приедут. */
+.chip.busy::after { content: "…"; margin-left: 3px; }
+.chip.busy { animation: chip-busy 1s ease-in-out infinite; }
+@keyframes chip-busy { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .chip.busy { animation: none; opacity: .6; } }
 
 /* ---------- легенда ---------- */
 
@@ -158,7 +159,6 @@ input[type="range"] { padding: 0; width: 160px; accent-color: var(--accent); bor
 .legend b { color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; font-size: 11px; }
 .legend i { font-style: normal; font-variant-numeric: tabular-nums; }
 .legend .sw-off { color: var(--muted); text-decoration: line-through; }
-.legend .sw-outlier { color: var(--muted); opacity: .65; }
 .legend .sw-dash {
   display: inline-block;
   width: 20px; height: 0;
@@ -367,8 +367,37 @@ tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
 .cell:hover { background: #222836 !important; color: #fff; }
 .cell.on { color: var(--text); }
 .cell.off { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
-.cell.outlier { color: var(--text-2); opacity: .5; }
 .empty { color: #2b323f; }
+
+/* Номер круга на комплекте — слева, мелко и приглушённо: справочная цифра,
+   а не то, что читают в первую очередь. */
+.age {
+  float: left;
+  margin-left: -4px;
+  color: var(--muted);
+  font-size: 9.5px;
+  opacity: .7;
+}
+.cell[data-comp] .age { display: none; } /* на первом круге стинта там буква */
+
+/* Значок SC внутри ячейки: правка пометки поштучно. Прячется, пока не навели
+   на строку, иначе 70×20 значков перекрыли бы саму таблицу. */
+.cell { position: relative; }
+button.cell-sc {
+  position: absolute;
+  top: 1px; right: 2px;
+  padding: 0 3px;
+  border: none; border-radius: 3px;
+  background: #2b3242;
+  color: #7d879b;
+  font: inherit; font-size: 8.5px; font-weight: 700; line-height: 1.5;
+  letter-spacing: .04em;
+  opacity: 0;
+  transition: opacity .1s;
+}
+tbody tr:hover button.cell-sc { opacity: .5; }
+button.cell-sc:hover { opacity: 1 !important; background: #3a3115; color: #d8b451; }
+button.cell-sc.on { opacity: 1; background: #3a3115; color: #d8b451; }
 
 /* Резина: полоса цвета состава слева в ячейке — стинт читается сплошным
    блоком. Буква ставится только на первом круге стинта, чтобы состав
@@ -383,7 +412,7 @@ tbody tr:hover td, tbody tr:hover th.lapno { background: #171b24; }
   font-weight: 800;
   letter-spacing: .04em;
 }
-.cell.off[data-comp]::before, .cell.outlier[data-comp]::before { opacity: .5; }
+.cell.off[data-comp]::before { opacity: .5; }
 
 .legend .tyres { gap: 4px; }
 .legend i.tyre {
