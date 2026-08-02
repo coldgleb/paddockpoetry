@@ -402,6 +402,53 @@ for (const [name, c] of Object.entries(COMPOUNDS)) {
 const letters = Object.values(COMPOUNDS).map((c) => c.letter);
 assert.equal(new Set(letters).size, letters.length, 'буквы не должны совпадать');
 
+// --- пробег комплекта: ручной, из API, либо новый ---------------------------
+// Повторяем tyreAt из app.js: ручной пробег главнее, дальше API, и только
+// если в API ничего нет — считаем комплект новым от начала отрезка.
+{
+  const apiTyres = new Map([[1, expandStints([
+    { driver_number: 1, lap_start: 10, lap_end: 20, compound: 'SOFT', tyre_age_at_start: 5 },
+  ]).get(1)]]);
+  const at = (manual, lap, driverId = 1) => {
+    const api = apiTyres.get(driverId)?.get(lap) || null;
+    for (let i = manual.length - 1; i >= 0; i--) {
+      const m = manual[i];
+      if (m.driverId === driverId && lap >= m.from && lap <= m.to) {
+        const age = m.age != null ? m.age + (lap - m.from) + 1 : api?.age ?? lap - m.from + 1;
+        return { compound: m.compound, age };
+      }
+    }
+    return api;
+  };
+
+  // Без ручных отрезков — как отдал API: пробег 5, значит первый круг шестой.
+  assert.equal(at([], 10).age, 6);
+  assert.equal(at([], 20).age, 16);
+  assert.equal(at([], 25), null, 'вне стинта данных нет');
+
+  // Ручной отрезок без пробега там, где API молчит: комплект считаем новым.
+  const noApi = [{ driverId: 1, from: 30, to: 34, compound: 'HARD', age: null }];
+  assert.equal(at(noApi, 30).age, 1, 'первый круг отрезка — первый на комплекте');
+  assert.equal(at(noApi, 34).age, 5);
+
+  // Ручной отрезок без пробега поверх данных API: пробег берём из API,
+  // а состав — свой. Это и есть «только если нет информации в API».
+  const overApi = [{ driverId: 1, from: 10, to: 20, compound: 'HARD', age: null }];
+  assert.equal(at(overApi, 10).compound, 'HARD', 'состав переписан');
+  assert.equal(at(overApi, 10).age, 6, 'а пробег остался из API');
+
+  // Заданный вручную пробег главнее всего, включая API.
+  const worn = [{ driverId: 1, from: 10, to: 20, compound: 'HARD', age: 12 }];
+  assert.equal(at(worn, 10).age, 13, 'пробег 12 → первый круг тринадцатый');
+  assert.equal(at(worn, 11).age, 14);
+
+  // Ноль — это осмысленный ввод «комплект новый», а не «не знаю».
+  const fresh = [{ driverId: 1, from: 10, to: 20, compound: 'HARD', age: 0 }];
+  assert.equal(fresh[0].age, 0);
+  assert.equal(at(fresh, 10).age, 1, 'ноль перебивает пробег из API');
+  assert.notEqual(at(fresh, 10).age, at(overApi, 10).age, 'ноль и «не знаю» — разное');
+}
+
 // --- клик по значку SC работает и после ручного включения круга -------------
 // Сценарий с руками: круг под VSC → включили его вручную → жмём значок VSC.
 // Пока ручное включение висит, пометка не влияет ни на расчёт, ни на вид, и

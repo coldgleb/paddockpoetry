@@ -53,6 +53,7 @@ const els = {
   tyreFrom: $('tyre-from'),
   tyreTo: $('tyre-to'),
   tyreCompound: $('tyre-compound'),
+  tyreAge: $('tyre-age'),
   tyreAdd: $('tyre-add'),
   tyreList: $('tyre-list'),
   openf1Note: $('openf1-note'),
@@ -288,16 +289,22 @@ function renderMeta() {
 
 // Ручные отрезки главнее данных OpenF1 и перекрывают друг друга снизу вверх:
 // последний добавленный выигрывает, так что ошибку можно переписать новой
-// записью, не удаляя старую. Возраст комплекта у ручного отрезка считаем от
-// его начала — откуда бы нам знать реальный пробег.
+// записью, не удаляя старую.
+//
+// Пробег: заданный вручную главнее всего; если не задан — берём из API (там
+// tyre_age_at_start есть всегда, когда есть сам стинт: проверено на 272
+// стинтах, ни одного пропуска); и только когда в API ничего нет, считаем
+// комплект новым и отсчитываем от начала отрезка.
 function tyreAt(driverId, lap) {
+  const api = state.race?.tyres?.get(driverId)?.get(lap) || null;
   for (let i = state.manualTyres.length - 1; i >= 0; i--) {
     const m = state.manualTyres[i];
     if (m.driverId === driverId && lap >= m.from && lap <= m.to) {
-      return { compound: m.compound, age: lap - m.from + 1 };
+      const age = m.age != null ? m.age + (lap - m.from) + 1 : api?.age ?? lap - m.from + 1;
+      return { compound: m.compound, age };
     }
   }
-  return state.race?.tyres?.get(driverId)?.get(lap) || null;
+  return api;
 }
 
 function renderTyrePanel() {
@@ -321,9 +328,12 @@ function renderTyrePanel() {
   els.tyreList.innerHTML = state.manualTyres
     .map((m, i) => {
       const c = COMPOUNDS[m.compound];
+      // Пишем пробег, только если его задали руками: иначе непонятно, откуда
+      // взялась цифра — из ввода или из API.
+      const worn = m.age != null ? ` · пробег ${m.age}` : '';
       return (
         `<span class="tyre-chip" style="--comp:${c.color}">` +
-        `${byId.get(m.driverId)?.code || m.driverId} · круги ${m.from}–${m.to} · ${c.name}` +
+        `${byId.get(m.driverId)?.code || m.driverId} · круги ${m.from}–${m.to} · ${c.name}${worn}` +
         `<button data-remove="${i}" title="Убрать">×</button></span>`
       );
     })
@@ -336,12 +346,17 @@ function addManualTyre() {
   const clamp = (v) => Math.min(Math.max(parseInt(v, 10) || 1, 1), race.lapCount);
   const a = clamp(els.tyreFrom.value);
   const b = clamp(els.tyreTo.value);
+  // Пустой пробег — не ноль, а «не знаю»: тогда его возьмут из API.
+  const wornRaw = els.tyreAge.value.trim();
+  const worn = wornRaw === '' ? null : Math.max(parseInt(wornRaw, 10) || 0, 0);
   state.manualTyres.push({
     driverId: Number(els.tyreDriver.value),
     from: Math.min(a, b), // перевёрнутый ввод читаем как тот же отрезок
     to: Math.max(a, b),
     compound: els.tyreCompound.value,
+    age: worn,
   });
+  els.tyreAge.value = '';
   renderTyrePanel();
   render();
 }

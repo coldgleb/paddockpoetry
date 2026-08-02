@@ -92,10 +92,16 @@
         <input id="tyre-to" type="number" min="1" step="1" value="1" />
         <label for="tyre-compound">состав</label>
         <select id="tyre-compound"></select>
+        <label for="tyre-age">пробег в начале</label>
+        <input id="tyre-age" type="number" min="0" step="1" placeholder="из API" />
         <button id="tyre-add" class="ghost">Добавить</button>
       </div>
       <div id="tyre-list" class="tyre-list"></div>
-      <p class="hint">Перекрывает данные OpenF1 — ими закрывают пропуски вроде «?» и правят ошибочный состав.</p>
+      <p class="hint">
+        Перекрывает данные OpenF1 — ими закрывают пропуски вроде «?» и правят ошибочный состав.
+        «Пробег в начале» — сколько кругов комплект уже проехал до этого отрезка; пусто означает
+        «взять из API», а если там ничего нет — считать комплект новым.
+      </p>
     </section>
 
     <section id="chart-panel" class="chart-panel" hidden>

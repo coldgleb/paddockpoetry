@@ -467,7 +467,7 @@ button.cell-sc.on { opacity: 1; background: #3a3115; color: #d8b451; }
 }
 .tyre-form select { min-width: 130px; padding: 7px 9px; }
 .tyre-form input {
-  width: 68px; padding: 7px 8px;
+  width: 78px; padding: 7px 8px;
   font: inherit; font-size: 14px;
   font-variant-numeric: tabular-nums; text-align: center;
   color: var(--text); background: var(--panel-2);
