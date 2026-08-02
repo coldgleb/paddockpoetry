@@ -391,18 +391,23 @@ function toggleDriver(driverId) {
   // Колонки держим в порядке финиша, иначе добавленный пилот прыгает в конец.
   const order = state.race.drivers.map((d) => d.id);
   state.selected.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  ensureSectors(); // новому пилоту могут понадобиться секторы
+  // Круги у нового пилота уже есть — Jolpica отдала всю гонку сразу. Догрузить
+  // может понадобиться только секторы, и только если их сейчас показывают.
+  ensureSectors();
 }
 
 // --- секторы по требованию -------------------------------------------------
 
 const isSectorMetric = (metric) => !!METRICS[metric]?.parts;
 
-// Секторы тянем только у выбранных и только по одному: это самая медленная
-// часть OpenF1, грузить ими всех скопом бессмысленно.
+// Ленивая загрузка нужна только секторам: целые круги Jolpica отдаёт всей
+// гонкой за пару секунд, дробить нечего. Секторы же тянутся по одному пилоту
+// и только когда их правда показывают — при метрике «весь круг» они не нужны,
+// даже если источник переключён на OpenF1.
 let sectorQueue = Promise.resolve();
 
 function ensureSectors() {
+  if (!isSectorMetric(state.metric)) return;
   if (state.source !== 'openf1' || !state.sessionKey || !state.race) return;
   const race = state.race;
   for (const id of state.selected) {
