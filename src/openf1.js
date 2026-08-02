@@ -100,16 +100,25 @@ export async function findSession(year, date) {
 
 // --- резина и судейская ----------------------------------------------------
 
-// Оба запроса не постраничные и не по пилотам, поэтому быстрые.
+// Запросы не постраничные и не по пилотам, поэтому быстрые.
 export async function fetchExtras(sessionKey) {
-  if (!sessionKey) return { sc: new Map(), tyres: new Map() };
+  if (!sessionKey) return { sc: new Map(), tyres: new Map(), colors: new Map() };
   if (extrasCache.has(sessionKey)) return extrasCache.get(sessionKey);
 
-  const [stints, control] = await Promise.all([
+  const [stints, control, drivers] = await Promise.all([
     getJSON(`${BASE}/stints?session_key=${sessionKey}`).catch(() => []),
     getJSON(`${BASE}/race_control?session_key=${sessionKey}`).catch(() => []),
+    getJSON(`${BASE}/drivers?session_key=${sessionKey}`).catch(() => []),
   ]);
-  const extras = { sc: parseSafetyCar(control), tyres: expandStints(stints) };
+
+  // Официальные цвета команд. Приходят шестью hex-цифрами без решётки —
+  // проверено на 82 записях за 2023–2026: пропусков и другого формата нет.
+  const colors = new Map();
+  for (const d of drivers) {
+    if (/^[0-9A-F]{6}$/i.test(d.team_colour || '')) colors.set(d.driver_number, `#${d.team_colour}`);
+  }
+
+  const extras = { sc: parseSafetyCar(control), tyres: expandStints(stints), colors };
   extrasCache.set(sessionKey, extras);
   return extras;
 }

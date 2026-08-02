@@ -63,6 +63,13 @@ function setStatus(msg, isError = false) {
 
 const fmt = (v) => (v == null ? '—' : v.toFixed(3));
 
+// Цвет команды. Первым делом официальный из состава OpenF1, свой справочник —
+// запасной вариант для сезонов до 2023, где OpenF1 данных не имеет.
+function driverColor(driver) {
+  if (!driver) return teamColor('');
+  return state.race?.colors?.get(driver.id) || teamColor(driver.team);
+}
+
 // --- расчёт и рендер -------------------------------------------------------
 
 // Считаем один раз на отрисовку: результат нужен и таблице, и графику, и
@@ -105,7 +112,7 @@ function renderTable(rows) {
   }
 
   const byId = new Map(race.drivers.map((d) => [d.id, d]));
-  const color = (id) => teamColor(byId.get(id)?.team);
+  const color = (id) => driverColor(byId.get(id));
 
   // Ширину столбца кругов задаём через <col>; цвет команды туда не вешаем —
   // на колонки наследуются только background/border/width, но не переменные.
@@ -237,7 +244,7 @@ function renderChartPanel(rows) {
     selected.map((id) => ({
       id,
       code: byId.get(id)?.code || id,
-      color: teamColor(byId.get(id)?.team),
+      color: driverColor(byId.get(id)),
       points: rows.get(id).points, // только зачётные круги — те же, что дали темп
     })),
     win,
@@ -247,7 +254,7 @@ function renderChartPanel(rows) {
 function renderDriverChips() {
   els.drivers.innerHTML = state.race.drivers
     .map((d) => {
-      const c = teamColor(d.team);
+      const c = driverColor(d);
       const active = state.selected.includes(d.id);
       const busy = state.loadingSectors.has(d.id); // секторы едут прямо сейчас
       const style = active
@@ -576,12 +583,14 @@ async function load() {
     if (state.race !== race) return;
     state.sessionKey = sessionKey;
     if (sessionKey) {
-      const { sc, tyres } = await fetchExtras(sessionKey);
+      const { sc, tyres, colors } = await fetchExtras(sessionKey);
       if (state.race !== race) return;
       race.sc = sc;
       race.tyres = tyres;
+      race.colors = colors;
       refreshFlags();
       renderTyrePanel();
+      renderDriverChips();
       render();
     }
     els.openf1Note.hidden = !!sessionKey;
