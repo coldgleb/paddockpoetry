@@ -20,6 +20,7 @@ const state = {
   manualSC: new Map(), // "driverId:lap" → 'SC'/'VSC'/false, пометка по пилоту
   manualTyres: [], // [{ driverId, from, to, compound }] — поверх данных OpenF1
   metric: 'lap', // что сравниваем: круг, сектор или сумма секторов
+  order: 'position', // порядок колонок: 'position' | 'pace' | 'manual'
   source: 'jolpica', // откуда покруговка: 'jolpica' (быстро) | 'openf1' (секторы)
   sessionKey: null, // сессия OpenF1 для этой гонки, если нашлась
   loadingSectors: new Set(), // по кому секторы едут прямо сейчас
@@ -43,6 +44,7 @@ const els = {
   lapTo: $('lap-to'),
   lapReset: $('lap-reset'),
   metric: $('metric'),
+  order: $('order'),
   tyrePanel: $('tyre-panel'),
   tyreDriver: $('tyre-driver'),
   tyreFrom: $('tyre-from'),
@@ -63,21 +65,45 @@ const fmt = (v) => (v == null ? '—' : v.toFixed(3));
 
 // --- расчёт и рендер -------------------------------------------------------
 
+// Считаем один раз на отрисовку: результат нужен и таблице, и графику, и
+// сортировке по темпу.
 function render() {
-  renderTable();
-  renderChartPanel();
-}
-
-function renderTable() {
   const { race, flags, selected, overrides, range, metric } = state;
   if (!race) return;
+  const rows = computePace(race, flags, { selected, overrides, range, metric });
+  applyOrder(rows);
+  renderTable(rows);
+  renderChartPanel(rows);
+}
+
+// Порядок колонок. 'manual' не трогаем — там порядок и есть состояние.
+function applyOrder(rows) {
+  const pos = new Map(state.race.drivers.map((d, i) => [d.id, i])); // список уже финишный
+  if (state.order === 'position') {
+    state.selected.sort((a, b) => pos.get(a) - pos.get(b));
+  } else if (state.order === 'pace') {
+    state.selected.sort((a, b) => {
+      const pa = rows.get(a)?.pace;
+      const pb = rows.get(b)?.pace;
+      // Без темпа (все круги выключены, нет сектора) — в конец, но между собой
+      // по финишу, иначе порядок скакал бы от перерисовки к перерисовке.
+      if (pa == null || pb == null) {
+        if (pa == null && pb == null) return pos.get(a) - pos.get(b);
+        return pa == null ? 1 : -1;
+      }
+      return pa - pb;
+    });
+  }
+}
+
+function renderTable(rows) {
+  const { race, flags, selected, overrides, range, metric } = state;
 
   if (!selected.length) {
     els.table.innerHTML = '<p class="empty-state">Выбери хотя бы одного пилота выше.</p>';
     return;
   }
 
-  const rows = computePace(race, flags, { selected, overrides, range, metric });
   const byId = new Map(race.drivers.map((d) => [d.id, d]));
   const color = (id) => teamColor(byId.get(id)?.team);
 
@@ -89,7 +115,11 @@ function renderTable() {
     .map((id) => {
       const c = color(id);
       const d = byId.get(id);
-      return `<th style="--team:${c}"><button class="drop" data-driver="${id}" title="${d?.name || id} · убрать колонку">${d?.code || id}</button></th>`;
+      const hint = `${d?.name || id} · клик убирает колонку, перетаскивание меняет порядок`;
+      return (
+        `<th class="col" style="--team:${c}" data-col="${id}" draggable="true">` +
+        `<button class="drop" data-driver="${id}" draggable="true" title="${hint}">${d?.code || id}</button></th>`
+      );
     })
     .join('')}</tr>`;
 
@@ -197,10 +227,8 @@ function stickHeader() {
 
 // На графике только зачётные круги — те же точки, что дали темп. Разрывы
 // (пит, SC, ручные выключения) рисуются пунктиром.
-function renderChartPanel() {
-  const { race, flags, selected, overrides, range, metric } = state;
-  if (!race) return;
-  const rows = computePace(race, flags, { selected, overrides, range, metric });
+function renderChartPanel(rows) {
+  const { race, selected, range } = state;
   const byId = new Map(race.drivers.map((d) => [d.id, d]));
   const win = range || { from: 1, to: race.lapCount };
 
@@ -303,7 +331,7 @@ function addManualTyre() {
     compound: els.tyreCompound.value,
   });
   renderTyrePanel();
-  renderTable();
+  render();
 }
 
 // --- переключение кругов ---------------------------------------------------
@@ -394,12 +422,42 @@ function toggleDriver(driverId) {
   const i = state.selected.indexOf(driverId);
   if (i >= 0) state.selected.splice(i, 1);
   else state.selected.push(driverId);
-  // Колонки держим в порядке финиша, иначе добавленный пилот прыгает в конец.
-  const order = state.race.drivers.map((d) => d.id);
-  state.selected.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  // Круги у нового пилота уже есть — Jolpica отдала всю гонку сразу. Догрузить
-  // может понадобиться только секторы, и только если их сейчас показывают.
+  // Раскладывать по местам не надо: этим займётся applyOrder на отрисовке.
+  // В ручном режиме новый пилот встаёт в конец — там его и ищут.
+  // Круги у него уже есть, Jolpica отдала всю гонку сразу; догрузить может
+  // понадобиться только секторы, и только если их сейчас показывают.
   ensureSectors();
+}
+
+// --- порядок колонок -------------------------------------------------------
+
+function setOrder(value) {
+  state.order = value;
+  els.order.value = value;
+}
+
+// Перетаскивание: вынимаем колонку и вставляем на место той, на которую
+// бросили. Любое перетаскивание само переводит режим в ручной — иначе
+// следующая же перерисовка вернула бы порядок обратно.
+function moveDriver(fromId, toId) {
+  if (fromId === toId) return;
+  const from = state.selected.indexOf(fromId);
+  const to = state.selected.indexOf(toId);
+  if (from < 0 || to < 0) return;
+  state.selected.splice(from, 1);
+  state.selected.splice(to, 0, fromId);
+  setOrder('manual');
+  render();
+}
+
+// Клавиатурная замена перетаскиванию: Alt+← и Alt+→ на заголовке колонки.
+function nudgeDriver(id, delta) {
+  const at = state.selected.indexOf(id);
+  const to = at + delta;
+  if (at < 0 || to < 0 || to >= state.selected.length) return;
+  moveDriver(id, state.selected[to]);
+  // Фокус живёт на кнопке, а таблицу мы перерисовали — возвращаем его.
+  els.table.querySelector(`.drop[data-driver="${id}"]`)?.focus();
 }
 
 // --- секторы по требованию -------------------------------------------------
@@ -562,6 +620,11 @@ els.metric.addEventListener('change', () => {
   render();
 });
 
+els.order.addEventListener('change', () => {
+  setOrder(els.order.value);
+  render();
+});
+
 els.source.addEventListener('change', () => {
   state.source = els.source.value;
   if (state.source === 'jolpica' && isSectorMetric(state.metric)) {
@@ -583,14 +646,14 @@ els.tyreList.addEventListener('click', (e) => {
   if (!btn) return;
   state.manualTyres.splice(+btn.dataset.remove, 1);
   renderTyrePanel();
-  renderTable();
+  render();
 });
 
-// Ширина графика зависит от вёрстки — при ресайзе перерисовываем только его.
+// Ширина графика зависит от вёрстки — перерисовываем при ресайзе.
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(renderChartPanel, 120);
+  resizeTimer = setTimeout(render, 120);
 });
 
 // data-атрибуты всегда строки, а пилоты теперь опознаются номером машины.
@@ -622,10 +685,69 @@ els.table.addEventListener('click', (e) => {
   if (lapBtn) return toggleRow(+lapBtn.dataset.lap), render();
 
   const drop = e.target.closest('.drop');
-  if (drop) return toggleDriver(driverOf(drop)), renderDriverChips(), render();
+  // После перетаскивания браузер шлёт клик по кнопке — он убрал бы колонку,
+  // которую только что переставили.
+  if (drop) {
+    if (justDragged) return;
+    return toggleDriver(driverOf(drop)), renderDriverChips(), render();
+  }
 
   const cell = e.target.closest('.cell');
   if (cell) return toggleLap(driverOf(cell), +cell.dataset.lap), render();
+});
+
+// --- перетаскивание колонок ------------------------------------------------
+
+let dragId = null;
+let justDragged = false;
+const colOf = (el) => Number(el.closest('[data-col]')?.dataset.col);
+
+els.table.addEventListener('dragstart', (e) => {
+  const th = e.target.closest('[data-col]');
+  if (!th) return;
+  dragId = colOf(th);
+  justDragged = false;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', String(dragId)); // без данных Firefox не начнёт
+  th.classList.add('dragging');
+});
+
+els.table.addEventListener('dragover', (e) => {
+  if (dragId == null) return;
+  const th = e.target.closest('[data-col]');
+  if (!th) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const id = colOf(th);
+  for (const el of els.table.querySelectorAll('.drop-target')) el.classList.remove('drop-target');
+  if (id !== dragId) th.classList.add('drop-target');
+});
+
+els.table.addEventListener('drop', (e) => {
+  if (dragId == null) return;
+  const th = e.target.closest('[data-col]');
+  if (!th) return;
+  e.preventDefault();
+  justDragged = true;
+  moveDriver(dragId, colOf(th));
+});
+
+els.table.addEventListener('dragend', () => {
+  dragId = null;
+  for (const el of els.table.querySelectorAll('.dragging, .drop-target')) {
+    el.classList.remove('dragging', 'drop-target');
+  }
+  // Клик прилетает сразу после dragend — снимаем защиту на следующем кадре.
+  setTimeout(() => { justDragged = false; }, 0);
+});
+
+// Клавиатурная замена перетаскиванию.
+els.table.addEventListener('keydown', (e) => {
+  if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+  const drop = e.target.closest('.drop');
+  if (!drop) return;
+  e.preventDefault();
+  nudgeDriver(driverOf(drop), e.key === 'ArrowLeft' ? -1 : 1);
 });
 
 loadSeason();

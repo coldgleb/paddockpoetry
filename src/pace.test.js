@@ -402,6 +402,65 @@ for (const [name, c] of Object.entries(COMPOUNDS)) {
 const letters = Object.values(COMPOUNDS).map((c) => c.letter);
 assert.equal(new Set(letters).size, letters.length, 'буквы не должны совпадать');
 
+// --- порядок колонок -------------------------------------------------------
+// Повторяем сортировку из applyOrder: по месту в гонке, по темпу, вручную.
+{
+  const finish = ['NOR', 'PIA', 'LEC', 'HAM']; // race.drivers уже финишный
+  const pos = new Map(finish.map((id, i) => [id, i]));
+  const rows = run();
+  const byPace = (list) =>
+    [...list].sort((a, b) => {
+      const pa = rows.get(a)?.pace;
+      const pb = rows.get(b)?.pace;
+      if (pa == null || pb == null) {
+        if (pa == null && pb == null) return pos.get(a) - pos.get(b);
+        return pa == null ? 1 : -1;
+      }
+      return pa - pb;
+    });
+
+  // По темпу быстрейший впереди, и это не совпадает с финишным порядком.
+  const paced = byPace(finish);
+  assert.equal(paced[0], 'HAM', 'у HAM лучший темп');
+  assert.notDeepEqual(paced, finish, 'порядок по темпу отличается от финишного');
+  for (let i = 1; i < paced.length; i++) {
+    assert.ok(rows.get(paced[i - 1]).pace <= rows.get(paced[i]).pace, 'темп по возрастанию');
+  }
+
+  // Пилот без темпа уезжает в конец, а не в начало из-за сравнения с null.
+  const nothing = new Map();
+  for (let lap = 1; lap <= race.lapCount; lap++) nothing.set(key('LEC', lap), false);
+  const withGap = computePace(race, flags, { selected: finish, overrides: nothing });
+  const order = [...finish].sort((a, b) => {
+    const pa = withGap.get(a)?.pace;
+    const pb = withGap.get(b)?.pace;
+    if (pa == null || pb == null) {
+      if (pa == null && pb == null) return pos.get(a) - pos.get(b);
+      return pa == null ? 1 : -1;
+    }
+    return pa - pb;
+  });
+  assert.equal(withGap.get('LEC').pace, null);
+  assert.equal(order[order.length - 1], 'LEC', 'без темпа — в конец');
+
+  // Ручной порядок: вынули и вставили на место цели. Индекс цели берём ДО
+  // удаления — иначе при переносе вправо колонка встаёт на одну позицию левее,
+  // чем бросили, потому что всё справа сдвинулось.
+  const move = (list, fromId, toId) => {
+    const out = [...list];
+    if (fromId === toId) return out;
+    const from = out.indexOf(fromId);
+    const to = out.indexOf(toId);
+    if (from < 0 || to < 0) return out;
+    out.splice(from, 1);
+    out.splice(to, 0, fromId);
+    return out;
+  };
+  assert.deepEqual(move(finish, 'HAM', 'NOR'), ['HAM', 'NOR', 'PIA', 'LEC'], 'перенос в начало');
+  assert.deepEqual(move(finish, 'NOR', 'LEC'), ['PIA', 'LEC', 'NOR', 'HAM'], 'перенос вправо');
+  assert.deepEqual(move(finish, 'NOR', 'NOR'), finish, 'перенос на себя ничего не меняет');
+}
+
 // --- цвета команд ----------------------------------------------------------
 // Названия команд собраны из /drivers за 2023–2026. Если в новом сезоне
 // появится команда, которой тут нет, цвет молча станет серым — а серым

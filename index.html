@@ -31,6 +31,14 @@
         <label for="metric">Сравнивать</label>
         <select id="metric"></select>
       </div>
+      <div class="field">
+        <label for="order">Порядок колонок</label>
+        <select id="order">
+          <option value="position">по месту в гонке</option>
+          <option value="pace">по темпу</option>
+          <option value="manual">вручную</option>
+        </select>
+      </div>
       <div class="field push">
         <label for="source">Источник покруговки</label>
         <select id="source">
@@ -77,7 +85,8 @@
       Кнопка <span class="flag f-SC">SC</span> у номера круга ставит и снимает пометку сразу у всех выбранных;
       значок в углу ячейки — только у этого пилота (круги под машиной безопасности у пилотов не совпадают).
       Пит-круги пометка не перекрывает. Данные о SC/VSC приходят из судейской OpenF1.
-      Цифра слева в ячейке — номер круга на текущем комплекте резины.</span>
+      Цифра слева в ячейке — номер круга на текущем комплекте резины.
+      Колонки можно перетаскивать за код пилота (или Alt+←/→ с клавиатуры) — порядок переключится на ручной.</span>
     </div>
 
     <section id="tyre-panel" class="tyre-panel" hidden>
