@@ -506,19 +506,31 @@ const isSectorMetric = (metric) => !!METRICS[metric]?.parts;
 // даже если источник переключён на OpenF1.
 let sectorQueue = Promise.resolve();
 
+// Нужны ли секторы этого пилота прямо сейчас. Проверяется дважды: перед
+// постановкой в очередь и перед самим запросом — пока пилот стоял в очереди,
+// пользователь мог уйти с секторной метрики, сменить источник, убрать пилота
+// или загрузить другую гонку. Без второй проверки очередь дотягивала
+// оставшихся уже после возврата к целым кругам.
+function sectorsWanted(race, id) {
+  return (
+    state.race === race &&
+    state.selected.includes(id) &&
+    isSectorMetric(state.metric) &&
+    state.source === 'openf1' &&
+    !!state.sessionKey
+  );
+}
+
 function ensureSectors() {
-  if (!isSectorMetric(state.metric)) return;
-  if (state.source !== 'openf1' || !state.sessionKey || !state.race) return;
+  if (!state.race || !state.sessionKey) return;
   const race = state.race;
   for (const id of state.selected) {
+    if (!sectorsWanted(race, id)) continue;
     if (race.sectorsFor.has(id) || state.loadingSectors.has(id)) continue;
     state.loadingSectors.add(id);
     sectorQueue = sectorQueue.then(async () => {
-      if (state.race !== race || !state.selected.includes(id)) {
-        state.loadingSectors.delete(id); // гонку сменили или пилота убрали
-        return;
-      }
       try {
+        if (!sectorsWanted(race, id)) return; // передумали, пока ждали очереди
         const byLap = await fetchDriverSectors(state.sessionKey, id);
         // Секторы доливаем в те же объекты кругов, что пришли от Jolpica:
         // так у нас полный список кругов и секторы там, где OpenF1 их знает.

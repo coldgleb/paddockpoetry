@@ -402,6 +402,38 @@ for (const [name, c] of Object.entries(COMPOUNDS)) {
 const letters = Object.values(COMPOUNDS).map((c) => c.letter);
 assert.equal(new Set(letters).size, letters.length, 'буквы не должны совпадать');
 
+// --- очередь секторов бросает то, что перестало быть нужным -----------------
+// Повторяем ensureSectors: пятеро встали в очередь, пользователь почти сразу
+// вернулся к целым кругам. Догружаться должны только те, кто успел до этого.
+{
+  const queued = async (recheck) => {
+    const st = { metric: 's2', source: 'openf1', selected: [1, 2, 3, 4, 5] };
+    const isSector = (m) => m !== 'lap';
+    const wanted = (id) =>
+      st.selected.includes(id) && isSector(st.metric) && st.source === 'openf1';
+    const fetched = [];
+    let q = Promise.resolve();
+    for (const id of st.selected) {
+      if (!wanted(id)) continue;
+      q = q.then(async () => {
+        if (recheck && !wanted(id)) return; // проверка перед самим запросом
+        await new Promise((r) => setTimeout(r, 30));
+        fetched.push(id);
+      });
+    }
+    await new Promise((r) => setTimeout(r, 45));
+    st.metric = 'lap'; // ушли с секторов
+    await q;
+    return fetched;
+  };
+
+  const leaked = await queued(false);
+  const fixed = await queued(true);
+  assert.deepEqual(leaked, [1, 2, 3, 4, 5], 'без проверки очередь дотягивает всех');
+  assert.ok(fixed.length < leaked.length, 'с проверкой лишние запросы отменяются');
+  assert.ok(fixed.every((id) => leaked.includes(id)), 'отменяются именно лишние, а не любые');
+}
+
 // --- пробег комплекта: ручной, из API, либо новый ---------------------------
 // Повторяем tyreAt из app.js: ручной пробег главнее, дальше API, и только
 // если в API ничего нет — считаем комплект новым от начала отрезка.
