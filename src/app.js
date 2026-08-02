@@ -158,10 +158,12 @@ function renderTable() {
       const c = t && COMPOUNDS[t.compound];
       const prev = tyreAt(id, lap - 1);
       const first = c && prev?.compound !== t.compound;
-      const tyreAttr = c
-        ? ` style="--comp:${c.color}"` + (first ? ` data-comp="${c.letter}"` : '')
+      const tyreAttr = c ? ` style="--comp:${c.color}"` : '';
+      // Буква состава на первом круге стинта, номер круга на комплекте — на
+      // каждом. Оба в одном элементе, чтобы номер не терялся там, где буква.
+      const age = c
+        ? `<span class="tyre-mark">${first ? `<b>${c.letter}</b>` : ''}${t.age}</span>`
         : '';
-      const age = t?.age != null ? `<span class="age">${t.age}</span>` : '';
 
       const hint =
         `${formatLapTime(v)}` +
@@ -316,15 +318,23 @@ function refreshFlags() {
 // Пометка SC у одного пилота на одном круге. Судейская даёт номер круга по
 // лидеру, а круговые в этот момент на круг позади — поэтому правка поштучная.
 // PIT и OUT пометка не перекрывает: приоритет задан порядком в flagLaps.
-function toggleCellSC(driverId, lap) {
+// Возвращаем ту пометку, что следует из судейской: включённая обратно VSC
+// обязана остаться VSC, а не стать обычной SC. Своей пометке, которой в
+// данных нет, вида взять неоткуда — она SC.
+const scToSet = (lap) => state.race?.sc?.get(lap) || 'SC';
+
+// Записываем ручное значение только если оно расходится с данными: иначе
+// override «залипнет» после смены источника или сброса.
+function setManualSC(driverId, lap, value) {
   const k = key(driverId, lap);
-  const kind = state.flags.scKind(driverId, lap);
   const auto = state.race?.sc?.get(lap) || null;
-  // Если ручное значение совпало с тем, что и так следует из данных, override
-  // не держим — иначе он «залипнет» после смены источника или сброса.
-  const next = kind ? false : 'SC';
-  if ((next || null) === auto) state.manualSC.delete(k);
-  else state.manualSC.set(k, next);
+  if ((value || null) === auto) state.manualSC.delete(k);
+  else state.manualSC.set(k, value);
+}
+
+function toggleCellSC(driverId, lap) {
+  const kind = state.flags.scKind(driverId, lap);
+  setManualSC(driverId, lap, kind ? false : scToSet(lap));
   refreshFlags();
   render();
 }
@@ -333,11 +343,7 @@ function toggleCellSC(driverId, lap) {
 function toggleRowSC(lap) {
   const anyOff = state.selected.some((id) => !state.flags.scKind(id, lap));
   for (const id of state.selected) {
-    const k = key(id, lap);
-    const auto = state.race?.sc?.get(lap) || null;
-    const next = anyOff ? 'SC' : false;
-    if ((next || null) === auto) state.manualSC.delete(k);
-    else state.manualSC.set(k, next);
+    setManualSC(id, lap, anyOff ? scToSet(lap) : false);
   }
   refreshFlags();
   render();

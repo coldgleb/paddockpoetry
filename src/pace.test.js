@@ -147,6 +147,30 @@ assert.equal(offOne.get('A').get(5), undefined, 'у A пометка снята'
 assert.equal(offOne.get('B').get(5), 'SC', 'у B осталась');
 // Вид пометки сохраняется: VSC не должен превращаться в SC при переключении.
 assert.equal(flagLaps(scRace, { manualSC: new Map([[key('A', 3), 'VSC']]) }).get('A').get(3), 'VSC');
+
+// Снять и вернуть пометку — тот же вид, что был. Повторяем ровно ту логику,
+// которой пользуется интерфейс: снятое пишем как false, возвращаем из данных.
+{
+  const manual = new Map();
+  const set = (id, lap, value) => {
+    const auto = scRace.sc.get(lap) || null;
+    if ((value || null) === auto) manual.delete(key(id, lap));
+    else manual.set(key(id, lap), value);
+  };
+  const kindOf = (id, lap) => flagLaps(scRace, { manualSC: manual }).scKind(id, lap);
+  const restore = (lap) => scRace.sc.get(lap) || 'SC';
+
+  assert.equal(kindOf('A', 3), 'VSC', 'исходно круг 3 виртуальный');
+  set('A', 3, false); // сняли
+  assert.equal(kindOf('A', 3), null, 'пометка снялась');
+  set('A', 3, restore(3)); // вернули
+  assert.equal(kindOf('A', 3), 'VSC', 'вернулась именно VSC, а не SC');
+  assert.equal(manual.size, 0, 'совпало с данными — override не держим');
+
+  // А там, где в данных ничего нет, своя пометка остаётся обычной SC.
+  set('A', 7, restore(7));
+  assert.equal(kindOf('A', 7), 'SC');
+}
 // scKind даёт интерфейсу тот же порядок проверок, что и флаги.
 assert.equal(scFlags.scKind('A', 5), 'SC');
 assert.equal(scFlags.scKind('A', 7), null);
