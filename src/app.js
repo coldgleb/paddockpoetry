@@ -6,6 +6,7 @@ import {
 import { teamColor, onColor } from './teams.js';
 import { renderChart } from './chart.js';
 import { COMPOUNDS } from './tyres.js';
+import { onReveal as onRevealQuali } from './quali-view.js'; // вторая вкладка живёт своим модулем
 
 // Jolpica покрывает 2018+; резина, судейская и секторы — только с 2023.
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
@@ -815,5 +816,23 @@ els.table.addEventListener('keydown', (e) => {
   e.preventDefault();
   nudgeDriver(driverOf(drop), e.key === 'ArrowLeft' ? -1 : 1);
 });
+
+// --- вкладки ----------------------------------------------------------------
+
+const tabs = document.querySelectorAll('.tabs .tab');
+const panels = { pace: $('tab-pace'), quali: $('tab-quali') };
+for (const tab of tabs) {
+  tab.addEventListener('click', () => {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', String(on));
+    }
+    for (const [name, panel] of Object.entries(panels)) {
+      panel.hidden = name !== tab.dataset.tab;
+    }
+    if (tab.dataset.tab === 'quali') onRevealQuali();
+  });
+}
 
 loadSeason();

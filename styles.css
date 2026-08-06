@@ -503,6 +503,116 @@ button.cell-sc.on { opacity: 1; background: #3a3115; color: #d8b451; }
 .f-SC { background: #3a3115; color: #d8b451; }
 .f-VSC { background: #2c2b3f; color: #a9a2e0; }
 
+/* ---------- вкладки ---------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin: 18px auto 0;
+  border-bottom: 1px solid var(--line);
+}
+.tabs .tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 14px;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 14px;
+}
+.tabs .tab:hover { color: var(--text); }
+.tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* ---------- вкладка квалификации ---------- */
+
+.quali-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.q-team-name {
+  padding: 5px 12px;
+  border-radius: 7px;
+  font-weight: 750;
+  letter-spacing: .04em;
+}
+.q-overall {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.q-overall b {
+  margin-left: 8px;
+  color: var(--text);
+  font-size: 15px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+table.quali th, table.quali td { text-align: right; padding: 6px 14px; }
+table.quali thead th {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+table.quali th.q-track {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--panel-2);
+  text-align: left;
+  font-weight: 650;
+  letter-spacing: .04em;
+}
+table.quali tbody tr:hover td,
+table.quali tbody tr:hover th.q-track { background: #171b24; }
+table.quali .q-seg { color: var(--muted); font-variant-numeric: normal; }
+table.quali .q-gap { font-weight: 650; }
+/* Лучшее время в паре: подсветка заменяет знак — сразу видно, кто быстрее. */
+table.quali td.q-time.q-best { color: var(--best); font-weight: 650; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--best) 45%, transparent); border-radius: 5px; }
+tr.q-sprint th.q-track { color: var(--text-2); }
+
+/* Вкладки пар (когда напарников больше одного) — над таблицей. */
+.q-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.q-tab {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 7px 13px;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.q-tab:hover { color: var(--text); border-color: var(--muted); }
+.q-tab.active { color: var(--text); border-color: var(--accent); background: var(--panel); }
+
+/* Head-to-head активной пары — компактной карточкой над таблицей. */
+.q-h2h {
+  max-width: 360px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.q-h2h-score { display: flex; align-items: baseline; justify-content: space-between; }
+.q-h2h-side { display: flex; align-items: baseline; gap: 6px; color: var(--text); font-weight: 650; letter-spacing: .03em; }
+.q-h2h-side b { font-size: 20px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.q-h2h-side.win b { color: var(--best); }
+.q-h2h-vs { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+.q-h2h-bar { height: 6px; margin: 9px 0 8px; border-radius: 3px; background: #39414f; overflow: hidden; }
+.q-h2h-bar i { display: block; height: 100%; background: var(--team); }
+.q-h2h-meta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.q-pair-lead { color: var(--best); }
+
 /* ---------- подвал ---------- */
 
 .site-footer { border-top: 1px solid var(--line); margin-top: 32px; padding: 18px 0 28px; color: var(--muted); font-size: 12.5px; }

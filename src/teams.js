@@ -28,6 +28,19 @@ const FALLBACK = '#9AA4B8';
 
 export const teamColor = (teamName) => COLORS[teamName] || FALLBACK;
 
+// То же по стабильному constructorId Jolpica — им пользуется вкладка
+// квалификации, где имя команды приходит из разных эндпоинтов в разной форме
+// («Alpine» против «Alpine F1 Team»), а id постоянен.
+const COLORS_BY_ID = {
+  mclaren: '#FF8000', ferrari: '#E8002D', red_bull: '#3671C6', mercedes: '#27F4D2',
+  aston_martin: '#229971', alpine: '#FF87BC', williams: '#64C4FF',
+  rb: '#8B7FE8', racing_bulls: '#8B7FE8', sauber: '#52E252', kick_sauber: '#52E252',
+  haas: '#E9EEF4', audi: '#EB4526', cadillac: '#79797C', alphatauri: '#4C7FBF',
+  alfa: '#D42A45',
+};
+
+export const teamColorById = (id) => COLORS_BY_ID[id] || FALLBACK;
+
 // Чёрный или белый текст поверх цвета команды — по воспринимаемой яркости.
 export function onColor(hex) {
   const n = parseInt(hex.slice(1), 16);

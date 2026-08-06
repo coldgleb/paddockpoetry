@@ -80,6 +80,11 @@ export async function fetchSeasonRaces(year, onProgress) {
         round: parseInt(r.round, 10),
         name: r.raceName,
         date: r.date,
+        circuitId: r.Circuit?.circuitId || '',
+        country: r.Circuit?.Location?.country || '',
+        // Ключ Sprint у этапа есть только на спринт-уикендах — им и метим
+        // строки спринт-квалификации во вкладке сокомандников.
+        sprint: 'Sprint' in r,
       }));
     seasonCache.set(year, races); // лишний раз в лимит не упираемся
     return races;

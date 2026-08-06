@@ -13,7 +13,13 @@
     </div>
   </header>
 
+  <nav class="tabs wrap" role="tablist">
+    <button class="tab active" data-tab="pace" role="tab" aria-selected="true">Темп по кругам</button>
+    <button class="tab" data-tab="quali" role="tab" aria-selected="false">Квалификация · сокомандники</button>
+  </nav>
+
   <main class="wrap">
+    <div id="tab-pace" class="tab-panel">
     <section class="controls">
       <div class="field">
         <label for="season">Сезон</label>
@@ -123,6 +129,40 @@
     </div>
 
     <section id="table" class="table-wrap"></section>
+    </div>
+
+    <div id="tab-quali" class="tab-panel" hidden>
+      <section class="controls">
+        <div class="field">
+          <label for="q-season">Сезон</label>
+          <select id="q-season"></select>
+        </div>
+        <div class="field wide">
+          <label for="q-team">Команда</label>
+          <select id="q-team" disabled></select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="q-load" class="primary">Загрузить</button>
+        </div>
+        <div class="field push">
+          <label for="q-gap-unit">Гэп в</label>
+          <select id="q-gap-unit"></select>
+        </div>
+      </section>
+
+      <p class="hint tyre-note">
+        Данные — <a href="https://f1api.dev" target="_blank" rel="noopener">f1api.dev</a>.
+        Сравнение напарников по лучшему времени последней общей сессии: если оба
+        дошли до Q3 — по Q3, если кто-то вылетел раньше — по общей ранней сессии
+        (её сегмент — в колонке «Сегмент»). Лучшее время в паре подсвечено.
+        Спринт-квалификации — отдельными строками SPR. Где кто-то не поставил
+        времени, показываем время напарника, но в гэп такой этап не берём.
+      </p>
+
+      <div id="q-status" class="status" hidden></div>
+      <section id="q-table"></section>
+    </div>
   </main>
 
   <footer class="site-footer">
