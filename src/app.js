@@ -7,6 +7,7 @@ import { teamColor, onColor } from './teams.js';
 import { renderChart } from './chart.js';
 import { COMPOUNDS } from './tyres.js';
 import { onReveal as onRevealQuali } from './quali-view.js'; // вторая вкладка живёт своим модулем
+import './points-view.js'; // третья вкладка: зачёт квалификаций
 
 // Jolpica покрывает 2018+; резина, судейская и секторы — только с 2023.
 const SEASONS = [2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018];
@@ -820,7 +821,7 @@ els.table.addEventListener('keydown', (e) => {
 // --- вкладки ----------------------------------------------------------------
 
 const tabs = document.querySelectorAll('.tabs .tab');
-const panels = { pace: $('tab-pace'), quali: $('tab-quali') };
+const panels = { pace: $('tab-pace'), quali: $('tab-quali'), points: $('tab-points') };
 for (const tab of tabs) {
   tab.addEventListener('click', () => {
     for (const t of tabs) {

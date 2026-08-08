@@ -16,6 +16,7 @@
   <nav class="tabs wrap" role="tablist">
     <button class="tab active" data-tab="pace" role="tab" aria-selected="true">Темп по кругам</button>
     <button class="tab" data-tab="quali" role="tab" aria-selected="false">Квалификация · сокомандники</button>
+    <button class="tab" data-tab="points" role="tab" aria-selected="false">Зачёт квалификаций</button>
   </nav>
 
   <main class="wrap">
@@ -146,6 +147,10 @@
           <button id="q-load" class="primary">Загрузить</button>
         </div>
         <div class="field push">
+          <label for="q-cut">Отсев от, %</label>
+          <input id="q-cut" type="number" min="0" step="0.1" />
+        </div>
+        <div class="field">
           <label for="q-gap-unit">Гэп в</label>
           <select id="q-gap-unit"></select>
         </div>
@@ -158,10 +163,37 @@
         (её сегмент — в колонке «Сегмент»). Лучшее время в паре подсвечено.
         Спринт-квалификации — отдельными строками SPR. Где кто-то не поставил
         времени, показываем время напарника, но в гэп такой этап не берём.
+        Этап с гэпом больше порога «Отсев от» (трафик, ошибка, поломка) сам
+        выпадает из счёта: время видно, но серым и зачёркнутым. Клик по строке
+        включает и выключает этап вручную. Порог запоминается в браузере.
       </p>
 
       <div id="q-status" class="status" hidden></div>
       <section id="q-table"></section>
+    </div>
+
+    <div id="tab-points" class="tab-panel" hidden>
+      <section class="controls">
+        <div class="field">
+          <label for="p-season">Сезон</label>
+          <select id="p-season"></select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button id="p-load" class="primary">Загрузить</button>
+        </div>
+      </section>
+
+      <p class="hint tyre-note">
+        Данные — <a href="https://f1api.dev" target="_blank" rel="noopener">f1api.dev</a>.
+        Место в квалификации оплачивается как место в гонке (25-18-15-12-10-8-6-4-2-1),
+        место в спринт-квалификации — как в спринте (8-7-6-5-4-3-2-1, столбцы SPR).
+        В ячейке — очки, место видно в подсказке. Равенство очков разводим по числу
+        поулов, потом вторых мест и дальше.
+      </p>
+
+      <div id="p-status" class="status" hidden></div>
+      <section id="p-table"></section>
     </div>
   </main>
 

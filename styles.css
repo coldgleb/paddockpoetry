@@ -67,6 +67,16 @@ select, button, input[type="range"] {
   padding: 9px 11px;
 }
 select { min-width: 110px; cursor: pointer; }
+.field input[type="number"] {
+  width: 86px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 11px;
+}
 select:disabled { opacity: .45; cursor: default; }
 button { cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
 
@@ -579,6 +589,19 @@ table.quali .q-gap { font-weight: 650; }
 /* Лучшее время в паре: подсветка заменяет знак — сразу видно, кто быстрее. */
 table.quali td.q-time.q-best { color: var(--best); font-weight: 650; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--best) 45%, transparent); border-radius: 5px; }
 tr.q-sprint th.q-track { color: var(--text-2); }
+/* Отключённый этап: времена видны, но вне счёта — серым и зачёркнутыми. */
+table.quali tbody tr.q-row { cursor: pointer; }
+table.quali tr.off th.q-track,
+table.quali tr.off td { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+/* Зачёт квалификаций: пилоты × этапы, цвет команды — полоской у кода. */
+table.points th.p-driver { border-left: 3px solid var(--team, var(--line)); }
+table.points .p-pos { display: inline-block; min-width: 20px; color: var(--muted); font-weight: 600; }
+table.points .p-cell { font-variant-numeric: tabular-nums; }
+table.points .p-cell.p-zero, table.points td.p-cell:not([title]) { color: var(--muted); }
+table.points th.p-spr { color: var(--text-2); }
+table.points .p-total { font-weight: 700; }
+table.points thead th.p-total { color: var(--text-2); }
 
 /* Вкладки пар (когда напарников больше одного) — над таблицей. */
 .q-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }

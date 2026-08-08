@@ -44,6 +44,23 @@ export function commonSession(a, b) {
 export const gapPercent = (ta, tb) =>
   ta == null || tb == null || tb === 0 ? null : ((ta - tb) / tb) * 100;
 
+// Разрыв больше этого — уже не про пилотов: трафик, ошибка, поломка, красный
+// флаг в чужом круге. Такой этап сам выпадает из счёта и среднего гэпа.
+// Порог настраивается на странице; здесь — значение по умолчанию.
+export const AUTO_OFF_PCT = 1.5;
+
+// Ключ строки для ручного включения/отключения: пара + этап + спринт.
+export const rowKey = (pairKey, round, sprint) => `${pairKey}|${round}|${sprint ? 'S' : 'Q'}`;
+
+// Очки за место — как в гонке и как в спринте. Обе системы неизменны на всём
+// диапазоне сезонов вкладки (2018+ для гонки; спринт-квалификация появилась
+// только в 2023-м, когда спринт уже платил по 8 очков за победу).
+export const RACE_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+export const SPRINT_POINTS = [8, 7, 6, 5, 4, 3, 2, 1];
+
+export const pointsFor = (pos, sprint) =>
+  (sprint ? SPRINT_POINTS : RACE_POINTS)[pos - 1] || 0;
+
 // Лучший круг пилота за квалификацию — минимум из непустых Q1/Q2/Q3. Нужен
 // там, где напарники не сошлись в одной сессии и полноценный гэп не посчитать.
 const bestLap = (res) => {
@@ -51,6 +68,59 @@ const bestLap = (res) => {
   const ts = [res.Q1, res.Q2, res.Q3].filter((t) => t != null);
   return ts.length ? Math.min(...ts) : null;
 };
+
+// Зачёт квалификаций сезона: место в квале оплачивается как место в гонке, а
+// место в спринт-квалификации — как место в спринте. Возвращает
+// { stages, drivers }: stages — колонки в порядке календаря (спринт отдельной
+// колонкой перед своей квалой), drivers — строки зачёта, отсортированные по
+// очкам; у каждой строки cells (ключ этапа → { pos, pts }).
+//
+// Ничьи разбиваем «по-чемпионатному»: выше тот, у кого больше первых мест, при
+// равенстве — вторых и так далее. Так Расселл с одним поулом и Албон с двумя
+// вторыми не встают в произвольном порядке.
+export function buildStandings(rounds) {
+  const stages = [];
+  const drivers = new Map();
+
+  const add = (results, stage) => {
+    results.forEach((r, i) => {
+      const pos = r.pos ?? i + 1; // старый кэш без места — берём порядок ответа
+      const pts = pointsFor(pos, stage.sprint);
+      const d = drivers.get(r.driverId) || {
+        id: r.driverId, code: r.code, constructorId: r.constructorId, team: r.team,
+        points: 0, best: [], cells: new Map(),
+      };
+      d.constructorId = r.constructorId; // команда — по последнему этапу пилота
+      d.team = r.team;
+      d.points += pts;
+      d.best[pos] = (d.best[pos] || 0) + 1;
+      d.cells.set(stage.key, { pos, pts });
+      drivers.set(r.driverId, d);
+    });
+  };
+
+  for (const r of rounds) {
+    const code = trackCode(r.circuitId, r.country);
+    if (r.sprint && r.sprintResults?.length) {
+      const stage = { key: `${r.round}S`, code, label: `${code} SPR`, round: r.round, sprint: true };
+      stages.push(stage);
+      add(r.sprintResults, stage);
+    }
+    const stage = { key: `${r.round}Q`, code, label: code, round: r.round, sprint: false };
+    stages.push(stage);
+    add(r.results, stage);
+  }
+
+  // Больше первых мест — выше; дальше вторых, третьих…
+  const byBest = (a, b) => {
+    const n = Math.max(a.best.length, b.best.length);
+    for (let p = 1; p < n; p++) if ((b.best[p] || 0) !== (a.best[p] || 0)) return (b.best[p] || 0) - (a.best[p] || 0);
+    return 0;
+  };
+  const rows = [...drivers.values()].sort((a, b) => b.points - a.points || byBest(a, b));
+
+  return { stages, drivers: rows };
+}
 
 // Полный состав команды за сезон: все, кто хоть раз квалифицировался за неё.
 // Первым идёт штатный лидер — он становится «якорем» сравнения.
@@ -102,7 +172,11 @@ export function teamRoster(rounds, constructorId) {
 // что начинала сезон, — первой (активная вкладка). Так, помимо основной пары,
 // видны и разовые: у Williams-2020 это RUS—LAT и LAT—AIT (Айткен на Сахире
 // заменял ушедшего в Mercedes Расселла).
-export function buildComparison(rounds, constructorId) {
+//
+// overrides — ручные решения по строкам (rowKey → true/false), сильнее
+// автоматики: аномальный этап можно вернуть в счёт, обычный — выкинуть.
+// cutPct — порог автоотсева в процентах.
+export function buildComparison(rounds, constructorId, overrides = new Map(), cutPct = AUTO_OFF_PCT) {
   const roster = teamRoster(rounds, constructorId);
   const rank = new Map(roster.map((d, i) => [d.driverId, i])); // меньше — старше (лидер)
   const byId = new Map(roster.map((d) => [d.driverId, d]));
@@ -138,8 +212,14 @@ export function buildComparison(rounds, constructorId) {
       for (let j = i + 1; j < mates.length; j++) {
         const p = pairFor(mates[i].driverId, mates[j].driverId);
         const c = compare(results, p.left, p.right);
-        p.rows.push({ round, code, label: sprint ? `${code} SPR` : code, sprint, ...c });
-        if (c.gap != null && Number.isFinite(c.gap)) {
+        const key = rowKey(p.key, round, sprint);
+        const cmp = c.gap != null && Number.isFinite(c.gap);
+        const auto = cmp && Math.abs(c.gap) <= cutPct;
+        const on = cmp && (overrides.get(key) ?? auto);
+        p.rows.push({
+          round, code, label: sprint ? `${code} SPR` : code, sprint, ...c, key, cmp, auto, on,
+        });
+        if (on) {
           p.shared += 1;
           p.sumPct += c.gap;
           p.sumSec += c.ta - c.tb;
@@ -158,9 +238,11 @@ export function buildComparison(rounds, constructorId) {
   }
 
   // Map хранит пары в порядке первого появления (rounds идут по календарю), так
-  // что вкладки уже хронологические. Оставляем те, где было что сравнить.
+  // что вкладки уже хронологические. Оставляем те, где было что сравнить, —
+  // именно по сравнимым этапам, а не по зачётным: пара с единственным этапом,
+  // выключенным авто- или вручную, иначе исчезала бы вместе со своей вкладкой.
   const list = [...pairs.values()]
-    .filter((p) => p.shared > 0)
+    .filter((p) => p.rows.some((r) => r.cmp))
     .map((p) => ({
       key: p.key,
       left: p.left,

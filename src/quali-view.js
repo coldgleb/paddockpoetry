@@ -3,7 +3,7 @@
 // (f1api.js), расчёт — в qualifying.js; здесь только DOM и события.
 
 import { fetchSeasonQualifying, fetchSeasonTeams } from './f1api.js';
-import { buildComparison } from './qualifying.js';
+import { buildComparison, AUTO_OFF_PCT } from './qualifying.js';
 import { formatLapTime } from './pace.js';
 import { teamColorById, onColor } from './teams.js';
 
@@ -17,11 +17,32 @@ const GAP_UNITS = {
   sec: { label: 'секунды' },
 };
 
+// Порог автоотсева живёт в localStorage: настройка личная и меняется редко,
+// каждый заход выставлять её заново — раздражает. Ключ вне префикса кэша
+// f1api, чтобы Ctrl+F5 сбрасывал данные, но не настройку.
+const LS_CUT = 'pp-quali:cut';
+const loadCut = () => {
+  try {
+    const v = parseFloat(localStorage.getItem(LS_CUT));
+    return Number.isFinite(v) && v >= 0 ? v : AUTO_OFF_PCT;
+  } catch {
+    return AUTO_OFF_PCT;
+  }
+};
+const saveCut = (v) => {
+  try {
+    localStorage.setItem(LS_CUT, String(v));
+  } catch {
+    // Приватный режим — порог просто не переживёт перезагрузку.
+  }
+};
+
 const $ = (id) => document.getElementById(id);
 const els = {
   season: $('q-season'),
   team: $('q-team'),
   load: $('q-load'),
+  cut: $('q-cut'),
   gapUnit: $('q-gap-unit'),
   status: $('q-status'),
   table: $('q-table'),
@@ -34,6 +55,8 @@ const state = {
   team: null, // constructorId выбранной команды
   pairKey: null, // ключ активной пары-вкладки; null → пара, начинавшая сезон
   gapUnit: 'pct',
+  rowOff: new Map(), // rowKey → включён ли этап вручную (сильнее автоотсева)
+  cut: loadCut(), // порог автоотсева, %
   loading: false, // идёт загрузка этапов
 };
 
@@ -76,7 +99,7 @@ function render() {
     return;
   }
 
-  const { pairs } = buildComparison(state.rounds, state.team);
+  const { pairs } = buildComparison(state.rounds, state.team, state.rowOff, state.cut);
   if (!pairs.length) {
     els.table.innerHTML = state.loading
       ? '<p class="empty-state">Загружаю квалификации…</p>'
@@ -103,11 +126,18 @@ function render() {
 
   let body = '';
   for (const r of sel.rows) {
-    const f = faster(r);
+    const f = r.on ? faster(r) : 0; // у выключенного этапа никто не «быстрее»
     const bestA = f < 0 ? ' q-best' : '';
     const bestB = f > 0 ? ' q-best' : '';
+    const auto = !r.auto && !state.rowOff.has(r.key) ? ` (гэп больше ${state.cut}%)` : '';
+    const title = !r.cmp
+      ? 'Нет общей сессии — сравнивать нечего'
+      : r.on
+        ? 'Клик — убрать этап из счёта'
+        : `Этап не в счёте${auto} — клик вернёт`;
     body +=
-      `<tr class="q-row${r.sprint ? ' q-sprint' : ''}" data-round="${r.round}">` +
+      `<tr class="q-row${r.sprint ? ' q-sprint' : ''}${r.on ? '' : ' off'}" ` +
+      `data-key="${r.key}" data-round="${r.round}" title="${title}">` +
       `<th class="q-track">${r.label}</th>` +
       `<td class="q-time${bestA}">${formatLapTime(r.ta)}</td>` +
       `<td class="q-time${bestB}">${formatLapTime(r.tb)}</td>` +
@@ -234,16 +264,40 @@ els.team.addEventListener('change', () => {
   render();
 });
 
+// Порог автоотсева. Пустое или мусорное поле — вернуть значение по умолчанию:
+// без порога таблица молча учла бы аварийные круги. Ручные решения по строкам
+// не трогаем — они и так сильнее автоматики.
+els.cut.value = state.cut;
+els.cut.addEventListener('change', () => {
+  const v = parseFloat(els.cut.value);
+  state.cut = Number.isFinite(v) && v >= 0 ? v : AUTO_OFF_PCT;
+  els.cut.value = state.cut;
+  saveCut(state.cut);
+  render();
+});
+
 els.gapUnit.addEventListener('change', () => {
   state.gapUnit = els.gapUnit.value;
   render();
 });
 
 // Вкладки пар над таблицей — переключают активного напарника.
+// Клик по строке — ручное включение/отключение этапа. Если ручное решение
+// совпало с автоматическим, override убираем: иначе он «залипнет» и после
+// дозагрузки сезона строка перестанет слушаться автоотсева.
 els.table.addEventListener('click', (e) => {
   const tab = e.target.closest('.q-tab');
-  if (!tab) return;
-  state.pairKey = tab.dataset.pair;
+  if (tab) {
+    state.pairKey = tab.dataset.pair;
+    return render();
+  }
+  const row = e.target.closest('.q-row');
+  if (!row) return;
+  const { pairs } = buildComparison(state.rounds, state.team, state.rowOff, state.cut);
+  const r = pairs.flatMap((p) => p.rows).find((x) => x.key === row.dataset.key);
+  if (!r?.cmp) return; // нечего сравнивать — нечего и переключать
+  if (!r.on === r.auto) state.rowOff.delete(r.key);
+  else state.rowOff.set(r.key, !r.on);
   render();
 });
 

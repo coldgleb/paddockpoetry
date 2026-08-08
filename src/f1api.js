@@ -87,8 +87,12 @@ function toSeconds(t) {
 // квалификация приходит в полях sq1/sq2/sq3 — раскладываем их в те же Q1/Q2/Q3,
 // чтобы вся дальнейшая логика (общая сессия, лучший круг) работала одинаково.
 function mapResults(list, prefix) {
-  return (list || []).map((q) => ({
+  return (list || []).map((q, i) => ({
     driverId: q.driverId,
+    // Место в квалификации. В f1api поле зовётся gridPosition, но это именно
+    // результат сессии (штрафы к нему не применены). Где его нет — порядок
+    // в ответе и есть классификация.
+    pos: q.gridPosition ?? i + 1,
     code: q.driver?.shortName || (q.driverId || '').slice(0, 3).toUpperCase(),
     number: q.driver?.number ?? 999,
     constructorId: q.teamId,
