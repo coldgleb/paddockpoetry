@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "npx --yes serve@latest -l 8000 .",
-    "test": "node src/pace.test.js && node src/qualifying.test.js"
+    "test": "node src/pace.test.js && node src/qualifying.test.js && node src/chart.test.js"
   },
   "license": "MIT"
 }

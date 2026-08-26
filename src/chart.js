@@ -5,6 +5,8 @@ import { formatLapTime } from './pace.js';
 const M = { top: 16, right: 18, bottom: 30, left: 66 };
 const HEIGHT = 330;
 
+let legendMode = 'pace'; // что показывает легенда: 'pace' | 'diff'
+
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => `&${{ '&': 'amp', '<': 'lt', '>': 'gt', '"': 'quot' }[c]};`);
 
 // Аккуратный шаг сетки: 1-2-5 на порядок, чтобы подписи были круглыми.
@@ -14,9 +16,34 @@ function niceStep(span, target) {
   return [1, 2, 5, 10].find((m) => m * pow >= raw) * pow;
 }
 
-export function renderChart(host, series, { from, to }) {
+// Половина пути к фону панели: цвет остаётся узнаваемым, но уходит на второй
+// план. Так различаются сокомандники, которым API даёт один цвет на двоих.
+const BG = [0x14, 0x17, 0x1f]; // --panel
+export const pale = (hex) =>
+  '#' +
+  BG.map((b, i) =>
+    Math.round((parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) + b) / 2).toString(16).padStart(2, '0'),
+  ).join('');
+
+// Из пилотов с одинаковым цветом яркий остаётся у быстрейшего, остальные
+// бледнеют. Мутирует переданные объекты — на вход идут копии.
+export function fadeLosers(series) {
+  const groups = new Map();
+  for (const s of series) {
+    if (!groups.has(s.color)) groups.set(s.color, []);
+    groups.get(s.color).push(s);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const best = Math.min(...group.map((s) => s.pace ?? Infinity));
+    for (const s of group) if ((s.pace ?? Infinity) > best) s.color = pale(s.color);
+  }
+  return series;
+}
+
+export function renderChart(host, series, { from, to, title }) {
   const width = Math.max(host.clientWidth || 900, 360);
-  const drawn = series.filter((s) => s.points.length);
+  const drawn = fadeLosers(series.filter((s) => s.points.length).map((s) => ({ ...s })));
 
   if (!drawn.length) {
     host.innerHTML = '<p class="empty-state">Нет кругов в расчёте — нечего рисовать.</p>';
@@ -82,12 +109,24 @@ export function renderChart(host, series, { from, to }) {
 
   // Коды пилотов — легендой над графиком, а не подписями у концов линий:
   // в поле графика они наезжали на линии и читались как разрыв.
+  // Среднее время и отставание от лучшего — в легенде по очереди: две колонки
+  // цифр рядом с кодом пилота читаются хуже, чем одна.
   const legend =
-    '<div class="chart-legend">' +
+    `<div class="chart-legend" data-show="${legendMode}">` +
     drawn
-      .map((s) => `<span><i style="background:${s.color}"></i>${esc(s.code)}</span>`)
+      .map(
+        (s) =>
+          `<span><i style="background:${s.color}"></i>${esc(s.code)}` +
+          `<em class="v-pace">${formatLapTime(s.pace)}</em>` +
+          `<em class="v-diff">${diffText(s)}</em></span>`,
+      )
       .join('') +
-    '</div>';
+    '<span class="chart-actions">' +
+    `<button type="button" class="ghost legend-toggle" title="Что показывать в легенде">${
+      legendMode === 'pace' ? 'среднее' : 'отставание'
+    }</button>` +
+    '<button type="button" class="ghost chart-save" title="Скачать график картинкой">PNG</button>' +
+    '</span></div>';
 
   host.innerHTML =
     legend +
@@ -100,7 +139,71 @@ export function renderChart(host, series, { from, to }) {
     `<rect class="hit" x="${M.left}" y="${M.top}" width="${iw}" height="${ih}" />` +
     '</svg><div class="tip" hidden></div>';
 
+  host.querySelector('.legend-toggle').addEventListener('click', () => {
+    legendMode = legendMode === 'pace' ? 'diff' : 'pace';
+    renderChart(host, series, { from, to, title });
+  });
+  host.querySelector('.chart-save').addEventListener('click', () => savePng(host, drawn, width, title));
+
   attachHover(host, drawn, { from, to, x, y, width, iw, ih });
+}
+
+const diffText = (s) => (s.diff ? `+${s.diff.toFixed(3)}` : s.pace == null ? '—' : 'BEST');
+
+// Правила графика берём прямо из таблицы стилей вместе с :root — иначе
+// в отдельном SVG не раскроются var(--...) и копия поедет цветами.
+const chartCss = () =>
+  [...document.styleSheets]
+    .flatMap((sheet) => {
+      try { return [...sheet.cssRules]; } catch { return []; } // чужой домен — не читается
+    })
+    .filter((r) => r.selectorText === ':root' || r.selectorText?.includes('.chart '))
+    .map((r) => r.cssText)
+    .join('');
+
+// Картинка: тот же SVG, но с легендой внутри и без интерактивных слоёв.
+function savePng(host, drawn, width, title) {
+  const svg = host.querySelector('svg').cloneNode(true);
+  svg.setAttribute('class', 'chart'); // селекторы вида «.chart .grid» ждут предка
+  svg.querySelector('.cursor')?.remove();
+  svg.querySelector('.hit')?.remove();
+  svg.setAttribute('font-family', 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif');
+
+  const band = 30; // полоса сверху под легенду
+  const height = HEIGHT + band;
+  svg.setAttribute('viewBox', `0 ${-band} ${width} ${height}`);
+  svg.setAttribute('width', width);
+  svg.setAttribute('height', height);
+
+  let lx = M.left;
+  let items = '';
+  for (const s of drawn) {
+    const label = `${s.code} ${legendMode === 'pace' ? formatLapTime(s.pace) : diffText(s)}`;
+    items +=
+      `<rect x="${lx}" y="${-band + 11}" width="11" height="3" rx="1.5" fill="${s.color}" />` +
+      `<text x="${lx + 16}" y="${-band + 18}" fill="#aab3c4" font-size="12.5" font-weight="700">${esc(label)}</text>`;
+    lx += 32 + label.length * 7.2; // ширину текста считаем на глаз — точная не нужна
+  }
+  svg.insertAdjacentHTML('afterbegin', `<style>${chartCss()}</style>${items}`);
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width * 2; // ретина: мелкие подписи иначе мылятся
+    canvas.height = height * 2;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--panel').trim() || '#14171f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${(title || 'темп').replace(/[\\/:*?"<>|]/g, '-')}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    });
+  };
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
 }
 
 // Наведение: вертикальная линия на ближайшем круге и подсказка со временами.

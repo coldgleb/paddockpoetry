@@ -251,6 +251,17 @@ button.ghost:hover { color: var(--text); border-color: var(--muted); }
 }
 .chart-legend span { display: flex; align-items: center; gap: 6px; }
 .chart-legend i { width: 11px; height: 3px; border-radius: 2px; }
+.chart-legend em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Тумблер легенды: показываем что-то одно — среднее время или отставание. */
+.chart-legend[data-show="pace"] .v-diff,
+.chart-legend[data-show="diff"] .v-pace { display: none; }
+.chart-actions { margin-left: auto; gap: 8px; }
+.chart-actions button { padding: 3px 9px; font-size: 11px; }
 .chart .cursor line { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
 
 .chart .tip {

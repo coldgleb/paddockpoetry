@@ -253,9 +253,11 @@ function renderChartPanel(rows) {
       id,
       code: byId.get(id)?.code || id,
       color: driverColor(byId.get(id)),
+      pace: rows.get(id).pace,
+      diff: rows.get(id).diff,
       points: rows.get(id).points, // только зачётные круги — те же, что дали темп
     })),
-    win,
+    { ...win, title: `${race.season} ${race.raceName} — темп` },
   );
 }
 
